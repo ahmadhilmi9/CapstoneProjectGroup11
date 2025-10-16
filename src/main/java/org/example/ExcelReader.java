@@ -12,13 +12,6 @@ import java.util.List;
 
 public class ExcelReader {
 
-    /**
-     * Membaca sheet tertentu dari file Excel dan mengonversinya menjadi daftar Assignment.
-     * @param path Nama file Excel (misal: "jadwal.xlsx"), harus ada di folder src/main/resources.
-     * @param sheetName Nama sheet yang akan dibaca (misal: "TUMER").
-     * @return Daftar objek Assignment.
-     * @throws IOException jika file atau sheet tidak ditemukan.
-     */
     public static List<Assignment> readAssignments(String path, String sheetName) throws IOException {
         List<Assignment> assignments = new ArrayList<>();
 

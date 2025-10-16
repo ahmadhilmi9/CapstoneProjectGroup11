@@ -55,13 +55,11 @@ public final class Assignment {
         return Objects.hash(teacher, subject, className, totalHours);
     }
 
+
     @Override
     public String toString() {
-        return "Assignment[" +
-                "teacher='" + teacher + '\'' +
-                ", subject='" + subject + '\'' +
-                ", className='" + className + '\'' +
-                ", totalHours=" + totalHours +
-                ']';
+        return String.format("%s mengajar %s di kelas %s selama %d jam/minggu",
+                teacher, subject, className, totalHours);
     }
+
 }
