@@ -1,14 +1,18 @@
-// File: src/main/java/org/example/Assignment.java
 package org.example;
 
-import java.util.Objects;
+import java.util.*;
 
 /**
  * Kelas ini merepresentasikan satu baris penugasan unik untuk seorang guru.
  * Contoh: "Dra. Rohmatin Afida mengajar IPA di kelas 8B selama 5 jam seminggu".
- * Kita menggunakan class biasa (bukan record) untuk kompatibilitas dengan versi Java yang lebih lama.
+ * Setiap guru mendapat ID unik (1, 2, 3, dst) secara otomatis berdasarkan nama.
  */
 public final class Assignment {
+    // Menyimpan mapping nama guru -> ID unik
+    private static final Map<String, Integer> teacherIds = new HashMap<>();
+    private static int nextId = 1;
+
+    private final int teacherId;
     private final String teacher;
     private final String subject;
     private final String className;
@@ -19,9 +23,22 @@ public final class Assignment {
         this.subject = subject;
         this.className = className;
         this.totalHours = totalHours;
+        this.teacherId = getOrAssignTeacherId(teacher);
     }
 
-    // Metode 'getter' untuk mengakses data private dari luar kelas
+    // Metode internal untuk memberikan ID unik ke guru
+    private static int getOrAssignTeacherId(String teacher) {
+        if (!teacherIds.containsKey(teacher)) {
+            teacherIds.put(teacher, nextId++);
+        }
+        return teacherIds.get(teacher);
+    }
+
+    // Getter
+    public int teacherId() {
+        return teacherId;
+    }
+
     public String teacher() {
         return teacher;
     }
@@ -38,28 +55,11 @@ public final class Assignment {
         return totalHours;
     }
 
-    // Metode standar untuk perbandingan objek, hashing, dan representasi string
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        Assignment that = (Assignment) o;
-        return totalHours == that.totalHours &&
-                Objects.equals(teacher, that.teacher) &&
-                Objects.equals(subject, that.subject) &&
-                Objects.equals(className, that.className);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(teacher, subject, className, totalHours);
-    }
-
-
+    // Override standar
     @Override
     public String toString() {
-        return String.format("%s mengajar %s di kelas %s selama %d jam/minggu",
-                teacher, subject, className, totalHours);
+        return String.format("%-3d | %-30s | %-15s | %-6s | %2d jam",
+                teacherId, teacher, subject, className, totalHours);
     }
 
 }
