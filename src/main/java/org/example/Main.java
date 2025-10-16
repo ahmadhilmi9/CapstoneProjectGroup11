@@ -8,17 +8,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 // click the <icon src="AllIcons.Actions.Execute"/> icon in the gutter.
 public class Main {
     public static void main(String[] args) {
-        // Ganti nama file dan sheet yang ingin Anda periksa di sini
         String filePath = "jadwal.xlsx";
-        String sheetName = "sheet1"; // Ganti ini menjadi "JADWAL-1" atau nama sheet lain untuk memeriksanya
-
-        System.out.println("======================================================");
-        System.out.println("MEMBACA DATA DARI FILE: " + filePath);
-        System.out.println("SHEET YANG DIPERIKSA: " + sheetName);
-        System.out.println("======================================================");
-
+        String sheetName = "sheet1";
         try {
-            // Memanggil ExcelReader untuk membaca data
             List<Assignment> assignments = ExcelReader.readAssignments(filePath, sheetName);
 
             if (assignments.isEmpty()) {
