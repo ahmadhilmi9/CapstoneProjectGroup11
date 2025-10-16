@@ -8,7 +8,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class DataVerifier {
 
     public static void main(String[] args) {
-        // --- PENGATURAN ---
         // Ganti nama file dan sheet yang ingin Anda periksa di sini
         String filePath = "jadwal.xlsx";
         String sheetName = "sheet1"; // Ganti ini menjadi "JADWAL-1" atau nama sheet lain untuk memeriksanya
