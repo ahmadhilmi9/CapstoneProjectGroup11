@@ -9,11 +9,7 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Kelas ini adalah utilitas khusus untuk membaca file Excel.
- * Ia dirancang untuk membaca dari folder 'resources' dan mengubah
- * baris-baris di sheet menjadi daftar objek Assignment.
- */
+
 public class ExcelReader {
 
     /**
