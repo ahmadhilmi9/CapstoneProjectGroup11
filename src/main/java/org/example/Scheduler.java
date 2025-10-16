@@ -27,6 +27,7 @@ public class Scheduler {
         initializeEmptySchedule();
         initializeTeacherAvailability();
         fillReligiousTeacherSchedule();
+        fillSportsTeacherSchedule();
     }
 
     private void initializeEmptySchedule() {
@@ -59,6 +60,14 @@ public class Scheduler {
                         .anyMatch(sub -> a.subject().toUpperCase().contains(sub)))
                 .collect(Collectors.toList());
     }
+    
+    public List<Assignment> findSportsAssignments() {
+        // subject berisi kata "PJOK"
+        return assignments.stream()
+                .filter(a -> a.subject().toUpperCase().contains("PJOK"))
+                .collect(Collectors.toList());
+    }
+
 
     private void fillReligiousTeacherSchedule() {
         List<Assignment> religiousAssignments = findReligiousAssignments();
@@ -135,6 +144,79 @@ public class Scheduler {
             }
         }
     }
+
+    private void fillSportsTeacherSchedule() {
+    List<Assignment> sportsAssignments = findSportsAssignments();
+    // Urutkan berdasarkan teacherId demi deterministik
+    sportsAssignments.sort(Comparator.comparingInt(Assignment::teacherId));
+
+    for (Assignment a : sportsAssignments) {
+        String className = a.className();
+        int teacherId   = a.teacherId();
+        int need        = a.totalHours();
+
+        int[][] classSchedule = schedule.get(className);
+        if (classSchedule == null) {
+            System.out.printf(
+                "⚠ Kelas %s tidak dikenal, lewati assignment %s (ID %d)%n",
+                className, a.subject(), teacherId
+            );
+            continue;
+        }
+
+        boolean[][] teacherBusy = teacherOccupied.get(teacherId);
+        if (teacherBusy == null) {
+            teacherOccupied.putIfAbsent(teacherId, new boolean[DAYS.length][]);
+            for (int d = 0; d < DAYS.length; d++) {
+                teacherOccupied.get(teacherId)[d] = new boolean[HOURS_PER_DAY[d]];
+            }
+            teacherBusy = teacherOccupied.get(teacherId);
+        }
+
+        int placed = 0;
+
+        outer:
+        for (int d = 0; d < DAYS.length; d++) {
+            for (int h = 0; h < HOURS_PER_DAY[d]; h++) {
+
+                // aturan olahraga: hanya jam ke-1 sampai ke-5 (index 0–4)
+                if (h >= 5) continue;
+
+                // blok 2 jam jika masih need ≥2
+                if (need - placed >= 2) {
+                    if (h + 1 >= HOURS_PER_DAY[d]) continue;
+                    // pastikan keduanya di bawah index 5
+                    if (h + 1 >= 5) continue;
+                    if (classSchedule[d][h]     != 0 ||
+                        classSchedule[d][h + 1] != 0) continue;
+                    if (teacherBusy[d][h]     ||
+                        teacherBusy[d][h + 1]) continue;
+
+                    classSchedule[d][h]     = teacherId;
+                    classSchedule[d][h + 1] = teacherId;
+                    teacherBusy[d][h]     = true;
+                    teacherBusy[d][h + 1] = true;
+                    placed += 2;
+                    h++; // lompat slot kedua dari blok
+                    if (placed >= need) break outer;
+                    else continue;
+                }
+
+                // single slot untuk sisa 1 jam
+                if (need - placed == 1) {
+                    if (classSchedule[d][h] != 0) continue;
+                    if (teacherBusy[d][h]) continue;
+
+                    classSchedule[d][h] = teacherId;
+                    teacherBusy[d][h]   = true;
+                    placed++;
+                    if (placed >= need) break outer;
+                }
+            }
+        }
+    }
+}
+
 
     public void printSchedule() {
         for (String className : CLASSES) {
