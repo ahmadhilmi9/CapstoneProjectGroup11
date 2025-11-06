@@ -15,9 +15,17 @@ import java.util.List;
 public class ScheduleResultGUI extends JFrame {
     private Schedule schedule;
     private JTabbedPane tabbedPane;
+    private ScheduleGenerator generator; // Tambahkan ini untuk akses validasi distribusi
 
     public ScheduleResultGUI(Schedule schedule) {
         this.schedule = schedule;
+        this.generator = null;
+        initUI();
+    }
+
+    public ScheduleResultGUI(Schedule schedule, ScheduleGenerator generator) {
+        this.schedule = schedule;
+        this.generator = generator;
         initUI();
     }
 
@@ -407,8 +415,9 @@ public class ScheduleResultGUI extends JFrame {
 
                             if (scheduled != expected) {
                                 incomplete++;
-                                sb.append(String.format("   ✗ %s - %s [%s]: %d/%d jam\n",
-                                    a.getTeacher(), a.getSubject(), a.getClassName(), scheduled, expected));
+                                sb.append(String.format("   ✗ %s - %s [%s]: %d/%d jam (kurang %d jam)\n",
+                                    a.getTeacher(), a.getSubject(), className,
+                                    scheduled, expected, (expected - scheduled)));
                             }
                         }
                     }
@@ -419,29 +428,58 @@ public class ScheduleResultGUI extends JFrame {
         if (incomplete == 0) {
             sb.append("   ✓ SEMUA ASSIGNMENT TERJADWAL LENGKAP!\n");
         } else {
-            sb.append(String.format("   Total Incomplete: %d\n", incomplete));
+            sb.append(String.format("   ✗ Total Incomplete: %d assignment(s)\n", incomplete));
         }
 
-        // Cek constraint PJOK
-        sb.append("\n3. CEK CONSTRAINT PJOK (Maksimal Jam ke-5 untuk 2 jam):\n");
+        // Cek constraint PJOK dengan detail lebih baik
+        sb.append("\n3. CEK CONSTRAINT PJOK:\n");
+        sb.append("   (Aturan: 2 jam berurutan maksimal dimulai jam ke-4 selesai jam ke-5,\n");
+        sb.append("            1 jam bebas bisa sampai jam ke-10)\n");
         sb.append("   ").append("─".repeat(60)).append("\n");
         int pjokViolations = 0;
 
         for (String day : schedule.getDays()) {
             for (String className : schedule.getAllClasses()) {
                 List<TimeSlot> slots = schedule.getSlotsForClass(day, className);
-                for (int i = 0; i < slots.size() - 1; i++) {
+
+                for (int i = 0; i < slots.size(); i++) {
                     TimeSlot slot = slots.get(i);
                     if (slot.isEmpty()) continue;
 
                     if (slot.getAssignment().getSubject().toUpperCase().contains("PJOK")) {
-                        TimeSlot next = slots.get(i + 1);
-                        if (!next.isEmpty() && next.getAssignment().getSubject().toUpperCase().contains("PJOK")) {
-                            if (slot.getPeriod() > 4) {
-                                pjokViolations++;
-                                sb.append(String.format("   ✗ PJOK 2 jam di %s [%s] Jam %d-%d (harusnya max jam 4-5)\n",
-                                    day, className, slot.getPeriod(), next.getPeriod()));
+                        // Cek apakah ini bagian dari 2 jam berurutan
+                        boolean isDoubleSession = false;
+
+                        // Cek jika jam berikutnya juga PJOK
+                        if (i < slots.size() - 1) {
+                            TimeSlot next = slots.get(i + 1);
+                            if (!next.isEmpty() && next.getAssignment().getSubject().toUpperCase().contains("PJOK")
+                                && next.getAssignment().getTeacher().equals(slot.getAssignment().getTeacher())) {
+                                isDoubleSession = true;
+                                // Untuk 2 jam berurutan, harus dimulai max jam 4 (selesai jam 5)
+                                if (slot.getPeriod() > 4) {
+                                    pjokViolations++;
+                                    sb.append(String.format("   ✗ PJOK 2 jam berurutan di %s [%s] Jam %d-%d (harusnya max jam 4-5)\n",
+                                        day, className, slot.getPeriod(), next.getPeriod()));
+                                }
+                                i++; // Skip next slot karena sudah diproses
                             }
+                        }
+
+                        // Cek jika jam sebelumnya juga PJOK (untuk menghindari double count)
+                        if (!isDoubleSession && i > 0) {
+                            TimeSlot prev = slots.get(i - 1);
+                            if (!prev.isEmpty() && prev.getAssignment().getSubject().toUpperCase().contains("PJOK")
+                                && prev.getAssignment().getTeacher().equals(slot.getAssignment().getTeacher())) {
+                                continue; // Sudah diproses di iterasi sebelumnya
+                            }
+                        }
+
+                        // Untuk 1 jam tunggal, bebas sampai jam 10
+                        if (!isDoubleSession && slot.getPeriod() > 10) {
+                            pjokViolations++;
+                            sb.append(String.format("   ✗ PJOK 1 jam di %s [%s] Jam %d (melebihi jam 10)\n",
+                                day, className, slot.getPeriod()));
                         }
                     }
                 }
@@ -450,29 +488,50 @@ public class ScheduleResultGUI extends JFrame {
 
         if (pjokViolations == 0) {
             sb.append("   ✓ CONSTRAINT PJOK TERPENUHI!\n");
+        } else {
+            sb.append(String.format("   Total Pelanggaran: %d\n", pjokViolations));
         }
 
         // Cek constraint MGMP
-        sb.append("\n4. CEK CONSTRAINT MGMP (Rabu setelah istirahat):\n");
+        sb.append("\n4. CEK CONSTRAINT MGMP:\n");
+        sb.append("   (Aturan: Guru MGMP pada hari Rabu setelah jam ke-4 tidak mengajar)\n");
         sb.append("   ").append("─".repeat(60)).append("\n");
         int mgmpViolations = 0;
 
         Set<String> mgmpSubjects = new HashSet<>(Arrays.asList(
-            "SKI", "B.ARAB", "AQIDAH AKHLAK", "QURDITS", "FIQIH"));
+            "SKI", "B.ARAB", "AQIDAH AKHLAK", "QURDITS", "FIQIH", "AQIDAH A.",
+            "B. ARAB", "AL-QUR'AN HADITS", "AL QUR'AN HADITS", "BAHASA ARAB", "FIKIH"));
 
+        // Kumpulkan guru MGMP
+        Set<String> mgmpTeachers = new HashSet<>();
+        for (String className : schedule.getAllClasses()) {
+            for (String day : schedule.getDays()) {
+                List<TimeSlot> slots = schedule.getSlotsForClass(day, className);
+                for (TimeSlot slot : slots) {
+                    if (!slot.isEmpty()) {
+                        String subject = slot.getAssignment().getSubject().toUpperCase();
+                        for (String mgmp : mgmpSubjects) {
+                            if (subject.contains(mgmp)) {
+                                mgmpTeachers.add(slot.getAssignment().getTeacher());
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Validasi Rabu setelah jam 4
         for (String className : schedule.getAllClasses()) {
             List<TimeSlot> slots = schedule.getSlotsForClass("Rabu", className);
             for (TimeSlot slot : slots) {
                 if (slot.isEmpty()) continue;
-                if (slot.getPeriod() >= 6) {
-                    String subject = slot.getAssignment().getSubject().toUpperCase();
-                    for (String mgmp : mgmpSubjects) {
-                        if (subject.contains(mgmp)) {
-                            mgmpViolations++;
-                            sb.append(String.format("   ✗ %s [%s] di Rabu Jam %d (seharusnya < jam 6)\n",
-                                subject, className, slot.getPeriod()));
-                            break;
-                        }
+                if (slot.getPeriod() > 4) {
+                    String teacher = slot.getAssignment().getTeacher();
+                    if (mgmpTeachers.contains(teacher)) {
+                        mgmpViolations++;
+                        sb.append(String.format("   ✗ Guru MGMP %s [%s - %s] di Rabu Jam %d (harusnya max jam 4)\n",
+                            teacher, slot.getAssignment().getSubject(), className, slot.getPeriod()));
                     }
                 }
             }
@@ -480,6 +539,28 @@ public class ScheduleResultGUI extends JFrame {
 
         if (mgmpViolations == 0) {
             sb.append("   ✓ CONSTRAINT MGMP TERPENUHI!\n");
+        } else {
+            sb.append(String.format("   Total Pelanggaran: %d\n", mgmpViolations));
+        }
+
+        // Cek constraint distribusi mata pelajaran berurutan
+        sb.append("\n5. CEK DISTRIBUSI MATA PELAJARAN (Berurutan):\n");
+        sb.append("   (Aturan: Matematika/IPA: 3-2, Indo: 2-2-2, Inggris/IPS: 2-2,\n");
+        sb.append("            Mapel 3 jam: 2-1 atau 3, semua harus berurutan)\n");
+        sb.append("   ").append("─".repeat(60)).append("\n");
+
+        if (generator != null) {
+            List<String> distViolations = generator.getDistributionViolationDetails(schedule);
+            if (distViolations.isEmpty()) {
+                sb.append("   ✓ SEMUA MATA PELAJARAN TERDISTRIBUSI DENGAN BENAR!\n");
+            } else {
+                for (String violation : distViolations) {
+                    sb.append("   ✗ " + violation + "\n");
+                }
+                sb.append(String.format("   Total Pelanggaran: %d mata pelajaran\n", distViolations.size()));
+            }
+        } else {
+            sb.append("   ⚠ Generator tidak tersedia untuk validasi ini\n");
         }
 
         // Summary
@@ -512,4 +593,3 @@ public class ScheduleResultGUI extends JFrame {
         return text.substring(0, maxLength - 3) + "...";
     }
 }
-

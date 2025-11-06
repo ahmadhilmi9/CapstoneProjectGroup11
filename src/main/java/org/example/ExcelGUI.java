@@ -115,9 +115,11 @@ public class ExcelGUI {
 
                     // Generate jadwal di thread terpisah
                     SwingWorker<Schedule, Void> worker = new SwingWorker<Schedule, Void>() {
+                        private ScheduleGenerator generator;
+
                         @Override
                         protected Schedule doInBackground() throws Exception {
-                            ScheduleGenerator generator = new ScheduleGenerator(currentAssignments);
+                            generator = new ScheduleGenerator(currentAssignments);
                             return generator.generate();
                         }
 
@@ -126,8 +128,8 @@ public class ExcelGUI {
                             loadingDialog.dispose();
                             try {
                                 Schedule schedule = get();
-                                // Tampilkan hasil jadwal di window baru
-                                new ScheduleResultGUI(schedule);
+                                // Tampilkan hasil jadwal di window baru dengan generator
+                                new ScheduleResultGUI(schedule, generator);
                                 JOptionPane.showMessageDialog(frame,
                                         "Jadwal berhasil di-generate!\nSilakan lihat di window baru.",
                                         "Sukses",
