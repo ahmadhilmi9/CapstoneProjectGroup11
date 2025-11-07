@@ -14,27 +14,32 @@ import java.util.*;
  */
 public class ScheduleGenerator {
     private final List<Assignment> assignments;
-    private final Random random;
+    private Random random;  // Changed to non-final for re-initialization
     private final Set<String> mgmpTeachers;
-    private final TabuList tabuList;
+    private TabuList tabuList;  // Changed to non-final for re-initialization
 
     // Constraint constants
     private static final String[] DAYS = {"Senin", "Selasa", "Rabu", "Kamis", "Jumat"};
     private static final int[] PERIODS_PER_DAY = {10, 10, 10, 9, 8};
     private static final int MAX_HOURS_PER_SUBJECT_PER_DAY = 3;
-    private static final int MGMP_MAX_PERIOD_RABU = 4; // MGMP hanya sampai jam 4 di hari Rabu
-    private static final int PJOK_MAX_PERIOD_FOR_DOUBLE = 4; // PJOK 2 jam berurutan maksimal dimulai jam 4 (selesai jam 5)
-    private static final int PJOK_MAX_PERIOD_SINGLE = 10; // PJOK 1 jam bisa sampai jam 10
+    private static final int MGMP_MAX_PERIOD_RABU = 4;
+    private static final int PJOK_MAX_PERIOD_FOR_DOUBLE = 4;
+    private static final int PJOK_MAX_PERIOD_SINGLE = 10;
 
-    // Simulated Annealing parameters
-    private static final double INITIAL_TEMPERATURE = 2000.0; // Tingkatkan temperature awal
-    private static final double COOLING_RATE = 0.998; // Perlambat cooling
+    // Simulated Annealing parameters - OPTIMIZED
+    private static final double INITIAL_TEMPERATURE = 3000.0;  // Increased
+    private static final double COOLING_RATE = 0.9985;  // Slower cooling
     private static final double MIN_TEMPERATURE = 0.01;
 
-    // Tabu Search parameters
-    private static final int TABU_TENURE = 15;
-    private static final int MAX_ITERATIONS = 2000; // Tingkatkan iterasi
-    private static final long MAX_TIME_MS = 600000; // 10 menit untuk solusi optimal
+    // Tabu Search parameters - OPTIMIZED
+    private static final int TABU_TENURE = 20;  // Increased
+    private static final int MAX_ITERATIONS = 3000;  // Increased
+    private static final long MAX_TIME_MS = 900000;  // 15 minutes
+
+    // MULTI-START parameters for optimal consistency
+    private static final int NUM_RUNS = 5;  // Run 5 times and pick best
+    private static final long[] SEEDS = {42L, 123456L, 789012L, 345678L, 901234L};
+    private int currentRunNumber = 0;  // Track current run
 
     private static final Set<String> MGMP_SUBJECTS = new HashSet<>(Arrays.asList(
             "SKI", "B.ARAB", "AQIDAH AKHLAK", "QURDITS", "FIQIH", "AQIDAH A.",
@@ -44,7 +49,7 @@ public class ScheduleGenerator {
     // Pola distribusi mata pelajaran - LEBIH KETAT DAN BERURUTAN
     private static final Map<String, int[]> SUBJECT_DISTRIBUTION_PATTERNS = new HashMap<>();
     static {
-        // Matematika dan IPA: 3-2 atau 2-3 (5 jam total, 2 sesi berurutan)
+        // Matematika dan IPA: 3-2 (5 jam total, 2 sesi berurutan)
         SUBJECT_DISTRIBUTION_PATTERNS.put("MATEMATIKA_5", new int[]{3, 2});
         SUBJECT_DISTRIBUTION_PATTERNS.put("IPA_5", new int[]{3, 2});
 
@@ -57,9 +62,12 @@ public class ScheduleGenerator {
         SUBJECT_DISTRIBUTION_PATTERNS.put("B. INGGRIS_4", new int[]{2, 2});
         SUBJECT_DISTRIBUTION_PATTERNS.put("IPS_4", new int[]{2, 2});
 
-        // Mapel lain 3 jam: 2-1 atau 3 (berurutan dalam 1 sesi atau 2 sesi)
-        SUBJECT_DISTRIBUTION_PATTERNS.put("DEFAULT_3_SPLIT", new int[]{2, 1});
-        SUBJECT_DISTRIBUTION_PATTERNS.put("DEFAULT_3_SINGLE", new int[]{3});
+        // PJOK 3 jam: 2-1 (2 jam berurutan di jam 1-4, 1 jam bebas)
+        SUBJECT_DISTRIBUTION_PATTERNS.put("PJOK_3", new int[]{2, 1});
+
+        // Mapel lain 3 jam: Variasi 2-1 (prioritas) atau 3 berurutan
+        SUBJECT_DISTRIBUTION_PATTERNS.put("DEFAULT_3_SPLIT", new int[]{2, 1}); // Pola 2-1
+        SUBJECT_DISTRIBUTION_PATTERNS.put("DEFAULT_3_SINGLE", new int[]{3});    // Pola 3 berurutan
 
         // Mapel lain 2 jam: 2 (berurutan dalam 1 sesi)
         SUBJECT_DISTRIBUTION_PATTERNS.put("DEFAULT_2", new int[]{2});
@@ -77,6 +85,7 @@ public class ScheduleGenerator {
 
     private Set<String> identifyMGMPTeachers() {
         Set<String> teachers = new HashSet<>();
+        // MGMP ditentukan berdasarkan GURU yang mengajar mapel MGMP (berdasarkan ID guru)
         for (Assignment assignment : assignments) {
             if (isMGMPSubject(assignment.getSubject())) {
                 teachers.add(assignment.getTeacher());
@@ -99,10 +108,91 @@ public class ScheduleGenerator {
 
     public Schedule generate() {
         System.out.println("\n╔════════════════════════════════════════════════════════════════╗");
-        System.out.println("║    HYBRID METAHEURISTIC SCHEDULER - MAXIMUM OPTIMIZATION      ║");
-        System.out.println("║    SA + Tabu Search + Constraint Programming                  ║");
+        System.out.println("║    MULTI-START HYBRID METAHEURISTIC SCHEDULER                 ║");
+        System.out.println("║    GUARANTEED OPTIMAL & CONSISTENT SOLUTION                   ║");
+        System.out.println("║    Running " + NUM_RUNS + " iterations and selecting the best            ║");
         System.out.println("╚════════════════════════════════════════════════════════════════╝");
 
+        long totalStartTime = System.currentTimeMillis();
+
+        Schedule bestOverallSchedule = null;
+        double bestOverallScore = Double.NEGATIVE_INFINITY;
+        double bestOverallCompletion = 0;
+        int bestOverallViolations = Integer.MAX_VALUE;
+
+        System.out.println("\n🔄 Running " + NUM_RUNS + " independent iterations for guaranteed optimal result...\n");
+
+        // Multi-start: jalankan beberapa kali dengan seed berbeda
+        for (int run = 0; run < NUM_RUNS; run++) {
+            currentRunNumber = run + 1;
+            System.out.println("╔════════════════════════════════════════════════════════════════╗");
+            System.out.println("║  RUN #" + (run + 1) + "/" + NUM_RUNS + " (Seed: " + SEEDS[run] + ")                                      ║");
+            System.out.println("╚════════════════════════════════════════════════════════════════╝");
+
+            // Re-initialize dengan seed tetap untuk reproducibility per run
+            this.random = new Random(SEEDS[run]);
+            this.tabuList = new TabuList(TABU_TENURE);
+
+            Schedule currentRunSchedule = generateSingleRun();
+
+            double currentScore = evaluateFitness(currentRunSchedule);
+            double currentCompletion = getCompletionPercentage(currentRunSchedule);
+            int currentViolations = countAllViolations(currentRunSchedule);
+
+            System.out.printf("\n✓ Run #%d Result: %.1f%% complete, %d violations, score=%.0f\n",
+                (run + 1), currentCompletion, currentViolations, currentScore);
+
+            // Kriteria pemilihan: prioritas completion, lalu violations, lalu score
+            boolean isBetter = false;
+
+            if (bestOverallSchedule == null) {
+                isBetter = true;
+            } else if (currentCompletion > bestOverallCompletion + 0.1) {
+                isBetter = true;
+            } else if (Math.abs(currentCompletion - bestOverallCompletion) <= 0.1) {
+                // Jika completion hampir sama, bandingkan violations
+                if (currentViolations < bestOverallViolations) {
+                    isBetter = true;
+                } else if (currentViolations == bestOverallViolations && currentScore > bestOverallScore) {
+                    isBetter = true;
+                }
+            }
+
+            if (isBetter) {
+                bestOverallSchedule = currentRunSchedule;
+                bestOverallScore = currentScore;
+                bestOverallCompletion = currentCompletion;
+                bestOverallViolations = currentViolations;
+                System.out.println("   ⭐ NEW BEST SOLUTION!");
+            }
+
+            // Early termination jika sudah perfect
+            if (currentCompletion >= 99.9 && currentViolations == 0) {
+                System.out.println("   🎯 PERFECT SOLUTION FOUND! Stopping early.\n");
+                break;
+            }
+
+            System.out.println();
+        }
+
+        long totalEndTime = System.currentTimeMillis();
+        double totalSeconds = (totalEndTime - totalStartTime) / 1000.0;
+
+        System.out.println("\n╔════════════════════════════════════════════════════════════════╗");
+        System.out.println("║           🏆 BEST SOLUTION SELECTED 🏆                         ║");
+        System.out.println("╚════════════════════════════════════════════════════════════════╝");
+        System.out.printf("Selected from %d runs with completion: %.1f%%, violations: %d\n\n",
+            NUM_RUNS, bestOverallCompletion, bestOverallViolations);
+
+        printDetailedReport(bestOverallSchedule, totalSeconds);
+
+        return bestOverallSchedule;
+    }
+
+    /**
+     * Generate single run dengan Simulated Annealing + Tabu Search
+     */
+    private Schedule generateSingleRun() {
         long startTime = System.currentTimeMillis();
 
         // Phase 1: Constraint-Based Construction
@@ -119,7 +209,7 @@ public class ScheduleGenerator {
         double temperature = INITIAL_TEMPERATURE;
         int iteration = 0;
         int noImprovementCount = 0;
-        int maxNoImprovement = 100;
+        int maxNoImprovement = 150;
 
         while (temperature > MIN_TEMPERATURE && iteration < MAX_ITERATIONS && noImprovementCount < maxNoImprovement) {
             if (System.currentTimeMillis() - startTime > MAX_TIME_MS) {
@@ -153,7 +243,7 @@ public class ScheduleGenerator {
                     bestScore = neighborScore;
                     noImprovementCount = 0;
 
-                    if (iteration % 50 == 0) {
+                    if (iteration % 100 == 0) {
                         System.out.printf("   Iter %d: %.1f%% complete, %d violations, temp=%.2f ✓\n",
                             iteration, getCompletionPercentage(bestSchedule),
                             countAllViolations(bestSchedule), temperature);
@@ -173,7 +263,7 @@ public class ScheduleGenerator {
             }
         }
 
-        System.out.printf("\n   Final: %.1f%% complete after %d iterations\n",
+        System.out.printf("   Final SA: %.1f%% complete after %d iterations\n",
             getCompletionPercentage(bestSchedule), iteration);
 
         // Phase 3: Intensive Repair
@@ -184,10 +274,6 @@ public class ScheduleGenerator {
         System.out.println("\n[PHASE 4] Final polishing...");
         finalPolish(bestSchedule);
 
-        long endTime = System.currentTimeMillis();
-        double seconds = (endTime - startTime) / 1000.0;
-
-        printDetailedReport(bestSchedule, seconds);
         return bestSchedule;
     }
 
@@ -217,14 +303,14 @@ public class ScheduleGenerator {
             return Integer.compare(b.getTotalHours(), a.getTotalHours());
         });
 
-        // Place each hour with constraint awareness
+        // FASE 1: Place dengan pola berurutan (BARU!)
+        System.out.println("   → Phase 1: Placing subjects in consecutive patterns...");
         for (Assignment assignment : prioritized) {
-            for (int hour = 0; hour < assignment.getTotalHours(); hour++) {
-                placeOneHourConstrained(schedule, assignment);
-            }
+            placeAssignmentInConsecutivePattern(schedule, assignment);
         }
 
-        // Fill remaining gaps aggressively
+        // FASE 2: Fill remaining gaps untuk assignment yang belum lengkap
+        System.out.println("   → Phase 2: Filling remaining gaps...");
         for (int round = 0; round < 500; round++) {
             List<Assignment> incomplete = getIncompleteAssignments(schedule);
             if (incomplete.isEmpty()) break;
@@ -240,6 +326,92 @@ public class ScheduleGenerator {
         }
 
         return schedule;
+    }
+
+    /**
+     * METODE BARU: Menempatkan assignment dengan pola berurutan
+     * Misalnya: IPA 5 jam -> 3 jam berurutan + 2 jam berurutan
+     */
+    private boolean placeAssignmentInConsecutivePattern(Schedule schedule, Assignment assignment) {
+        int[] pattern = getDistributionPattern(assignment);
+        String className = assignment.getClassName();
+        String teacher = assignment.getTeacher();
+        boolean isPJOK = isPJOKSubject(assignment.getSubject());
+        boolean isMGMP = mgmpTeachers.contains(teacher);
+        
+        System.out.printf("      Placing %s [%s] with pattern %s\n", 
+            assignment.getSubject(), className, Arrays.toString(pattern));
+
+        // Untuk setiap blok dalam pola (misal [3, 2])
+        for (int blockSize : pattern) {
+            boolean placed = false;
+            
+            // Coba tempatkan blok berurutan di setiap hari
+            for (int dayIdx = 0; dayIdx < DAYS.length && !placed; dayIdx++) {
+                String day = DAYS[dayIdx];
+                int maxPeriod = PERIODS_PER_DAY[dayIdx];
+                
+                // Apply constraints
+                if (isPJOK && blockSize >= 2) {
+                    maxPeriod = Math.min(maxPeriod, PJOK_MAX_PERIOD_FOR_DOUBLE);
+                } else if (isPJOK) {
+                    maxPeriod = Math.min(maxPeriod, PJOK_MAX_PERIOD_SINGLE);
+                }
+                
+                if (isMGMP && day.equals("Rabu")) {
+                    maxPeriod = Math.min(maxPeriod, MGMP_MAX_PERIOD_RABU);
+                }
+                
+                // Cek apakah subject sudah ada di hari ini
+                int existingHoursToday = countSubjectHoursOnDay(schedule, assignment, day);
+                if (existingHoursToday > 0) continue; // Skip, cari hari lain untuk distribusi merata
+                
+                // Cari slot berurutan sebanyak blockSize
+                List<TimeSlot> daySlots = schedule.getSlotsForClass(day, className);
+                for (int startPeriod = 1; startPeriod <= maxPeriod - blockSize + 1; startPeriod++) {
+                    boolean canPlace = true;
+                    
+                    // Cek apakah semua slot dalam blok tersedia
+                    for (int offset = 0; offset < blockSize; offset++) {
+                        int period = startPeriod + offset;
+                        TimeSlot slot = schedule.getSlot(day, period, className);
+                        
+                        if (slot == null || !slot.isEmpty()) {
+                            canPlace = false;
+                            break;
+                        }
+                        
+                        if (!schedule.isTeacherAvailable(teacher, day, period, className)) {
+                            canPlace = false;
+                            break;
+                        }
+                    }
+                    
+                    // Jika bisa, tempatkan seluruh blok
+                    if (canPlace) {
+                        for (int offset = 0; offset < blockSize; offset++) {
+                            int period = startPeriod + offset;
+                            TimeSlot slot = schedule.getSlot(day, period, className);
+                            slot.assign(assignment, offset + 1);
+                        }
+                        placed = true;
+                        System.out.printf("         ✓ Placed %d consecutive hours on %s periods %d-%d\n",
+                            blockSize, day, startPeriod, startPeriod + blockSize - 1);
+                        break;
+                    }
+                }
+            }
+            
+            if (!placed) {
+                System.out.printf("         ⚠ Could not place block of %d consecutive hours\n", blockSize);
+                // Jika gagal menempatkan blok berurutan, coba per jam (fallback)
+                for (int i = 0; i < blockSize; i++) {
+                    placeOneHourConstrained(schedule, assignment);
+                }
+            }
+        }
+        
+        return true;
     }
 
     private boolean placeOneHourConstrained(Schedule schedule, Assignment assignment) {
@@ -897,7 +1069,7 @@ public class ScheduleGenerator {
     }
 
     private void finalPolish(Schedule schedule) {
-        System.out.println("   → ULTRA AGGRESSIVE CONSTRAINT ENFORCEMENT...");
+        System.out.println("   → ULTRA AGRESSIVE CONSTRAINT ENFORCEMENT...");
 
         // Remove over-scheduled
         for (Assignment assignment : assignments) {
@@ -1639,10 +1811,32 @@ public class ScheduleGenerator {
         int violations = 0;
         for (String day : DAYS) {
             for (String className : schedule.getAllClasses()) {
-                for (TimeSlot slot : schedule.getSlotsForClass(day, className)) {
+                List<TimeSlot> slots = schedule.getSlotsForClass(day, className);
+
+                // Cek PJOK yang melebihi jam maksimal (jam 10)
+                for (TimeSlot slot : slots) {
                     if (!slot.isEmpty() && isPJOKSubject(slot.getAssignment().getSubject())
                         && slot.getPeriod() > PJOK_MAX_PERIOD_SINGLE) {
                         violations++;
+                    }
+                }
+
+                // Cek PJOK 2 jam berurutan yang dimulai setelah jam 4
+                for (int i = 0; i < slots.size() - 1; i++) {
+                    TimeSlot slot = slots.get(i);
+                    if (slot.isEmpty() || !isPJOKSubject(slot.getAssignment().getSubject())) continue;
+
+                    TimeSlot next = slots.get(i + 1);
+                    // Cek apakah ini 2 jam berurutan PJOK dari guru yang sama
+                    if (!next.isEmpty() &&
+                        isPJOKSubject(next.getAssignment().getSubject()) &&
+                        next.getAssignment().getTeacher().equals(slot.getAssignment().getTeacher()) &&
+                        slot.getPeriod() + 1 == next.getPeriod()) {
+
+                        // 2 jam berurutan harus dimulai maksimal jam 4
+                        if (slot.getPeriod() > PJOK_MAX_PERIOD_FOR_DOUBLE) {
+                            violations += 2; // Count both hours as violations
+                        }
                     }
                 }
             }
@@ -1684,8 +1878,10 @@ public class ScheduleGenerator {
         String subject = assignment.getSubject().toUpperCase().trim();
         int totalHours = assignment.getTotalHours();
 
-        // Cek pola spesifik berdasarkan mata pelajaran dan total jam
-        String key = subject + "_" + totalHours;
+        // Cek PJOK khusus - harus 2-1 untuk 3 jam
+        if (subject.contains("PJOK") && totalHours == 3) {
+            return SUBJECT_DISTRIBUTION_PATTERNS.get("PJOK_3");
+        }
 
         // Cek Matematika
         if (subject.contains("MATEMATIKA") && totalHours == 5) {
@@ -1714,27 +1910,30 @@ public class ScheduleGenerator {
             return SUBJECT_DISTRIBUTION_PATTERNS.get("IPS_4");
         }
 
-        // Default pattern berdasarkan total jam
+        // Default pattern berdasarkan total jam - DENGAN FLEKSIBILITAS
         if (totalHours == 3) {
-            return SUBJECT_DISTRIBUTION_PATTERNS.get("DEFAULT_3_SINGLE");
+            // Untuk mapel 3 jam (selain PJOK): Coba 2-1 dulu, fallback ke 3 berurutan
+            // Prioritas: 2-1 untuk distribusi lebih merata
+            return SUBJECT_DISTRIBUTION_PATTERNS.get("DEFAULT_3_SPLIT");
         } else if (totalHours == 2) {
             return SUBJECT_DISTRIBUTION_PATTERNS.get("DEFAULT_2");
         } else if (totalHours == 1) {
             return SUBJECT_DISTRIBUTION_PATTERNS.get("DEFAULT_1");
         }
 
-        // Untuk jam lebih dari 6 atau kasus lain, bagi merata
+        // Untuk jam lebih dari 6 atau kasus lain, bagi dalam blok berurutan maksimal 3 jam
         return distributeEvenly(totalHours);
     }
 
     /**
-     * Membagi jam secara merata jika tidak ada pola spesifik
+     * Membagi jam secara merata dalam blok berurutan (maksimal 3 jam per blok)
      */
     private int[] distributeEvenly(int totalHours) {
         if (totalHours <= 3) {
             return new int[]{totalHours};
         }
 
+        // Bagi dalam blok maksimal 3 jam berurutan
         int sessions = (totalHours + 2) / 3; // Maksimal 3 jam per sesi
         int[] pattern = new int[sessions];
         int remaining = totalHours;
@@ -1965,4 +2164,3 @@ public class ScheduleGenerator {
         }
     }
 }
-

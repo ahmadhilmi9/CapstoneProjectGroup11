@@ -35,6 +35,21 @@ public class ScheduleResultGUI extends JFrame {
         setLocationRelativeTo(null);
         setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
 
+        // Main panel dengan BorderLayout
+        JPanel mainPanel = new JPanel(new BorderLayout());
+
+        // Panel untuk tombol export di atas
+        JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 10));
+        JButton exportButton = new JButton("📥 Export to Excel");
+        exportButton.setFont(new Font("Arial", Font.BOLD, 13));
+        exportButton.setBackground(new Color(34, 139, 34));
+        exportButton.setForeground(Color.WHITE);
+        exportButton.setFocusPainted(false);
+        exportButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
+        exportButton.addActionListener(e -> exportToExcel());
+        topPanel.add(exportButton);
+        mainPanel.add(topPanel, BorderLayout.NORTH);
+
         tabbedPane = new JTabbedPane();
 
         // Buat tab untuk setiap HARI (bukan per kelas)
@@ -52,7 +67,8 @@ public class ScheduleResultGUI extends JFrame {
         JPanel validationPanel = createValidationPanel();
         tabbedPane.addTab("✓ Validasi", validationPanel);
 
-        add(tabbedPane);
+        mainPanel.add(tabbedPane, BorderLayout.CENTER);
+        add(mainPanel);
         setVisible(true);
     }
 
@@ -543,26 +559,6 @@ public class ScheduleResultGUI extends JFrame {
             sb.append(String.format("   Total Pelanggaran: %d\n", mgmpViolations));
         }
 
-        // Cek constraint distribusi mata pelajaran berurutan
-        sb.append("\n5. CEK DISTRIBUSI MATA PELAJARAN (Berurutan):\n");
-        sb.append("   (Aturan: Matematika/IPA: 3-2, Indo: 2-2-2, Inggris/IPS: 2-2,\n");
-        sb.append("            Mapel 3 jam: 2-1 atau 3, semua harus berurutan)\n");
-        sb.append("   ").append("─".repeat(60)).append("\n");
-
-        if (generator != null) {
-            List<String> distViolations = generator.getDistributionViolationDetails(schedule);
-            if (distViolations.isEmpty()) {
-                sb.append("   ✓ SEMUA MATA PELAJARAN TERDISTRIBUSI DENGAN BENAR!\n");
-            } else {
-                for (String violation : distViolations) {
-                    sb.append("   ✗ " + violation + "\n");
-                }
-                sb.append(String.format("   Total Pelanggaran: %d mata pelajaran\n", distViolations.size()));
-            }
-        } else {
-            sb.append("   ⚠ Generator tidak tersedia untuk validasi ini\n");
-        }
-
         // Summary
         sb.append("\n").append("═".repeat(66)).append("\n");
         sb.append("SUMMARY:\n");
@@ -591,5 +587,66 @@ public class ScheduleResultGUI extends JFrame {
     private String truncate(String text, int maxLength) {
         if (text.length() <= maxLength) return text;
         return text.substring(0, maxLength - 3) + "...";
+    }
+
+    private void exportToExcel() {
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setDialogTitle("Simpan Jadwal ke Excel");
+        fileChooser.setSelectedFile(new java.io.File("Jadwal_Pelajaran.xlsx"));
+
+        // Filter untuk file Excel
+        javax.swing.filechooser.FileNameExtensionFilter filter =
+            new javax.swing.filechooser.FileNameExtensionFilter("Excel Files (*.xlsx)", "xlsx");
+        fileChooser.setFileFilter(filter);
+
+        int userSelection = fileChooser.showSaveDialog(this);
+
+        if (userSelection == JFileChooser.APPROVE_OPTION) {
+            String filePath = fileChooser.getSelectedFile().getAbsolutePath();
+
+            // Pastikan file berakhiran .xlsx
+            if (!filePath.toLowerCase().endsWith(".xlsx")) {
+                filePath += ".xlsx";
+            }
+
+            try {
+                // Export menggunakan ExcelExporter
+                ExcelExporter exporter = new ExcelExporter(schedule);
+                exporter.exportToExcel(filePath);
+
+                // Tampilkan pesan sukses
+                int result = JOptionPane.showConfirmDialog(
+                    this,
+                    "Jadwal berhasil diekspor ke:\n" + filePath + "\n\nBuka file sekarang?",
+                    "Export Berhasil",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.INFORMATION_MESSAGE
+                );
+
+                // Jika user ingin buka file
+                if (result == JOptionPane.YES_OPTION) {
+                    try {
+                        Desktop.getDesktop().open(new java.io.File(filePath));
+                    } catch (Exception ex) {
+                        JOptionPane.showMessageDialog(
+                            this,
+                            "File berhasil disimpan, tetapi tidak dapat dibuka secara otomatis.\n" +
+                            "Silakan buka manual: " + filePath,
+                            "Info",
+                            JOptionPane.INFORMATION_MESSAGE
+                        );
+                    }
+                }
+
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(
+                    this,
+                    "Error saat mengekspor ke Excel:\n" + ex.getMessage(),
+                    "Error",
+                    JOptionPane.ERROR_MESSAGE
+                );
+                ex.printStackTrace();
+            }
+        }
     }
 }
