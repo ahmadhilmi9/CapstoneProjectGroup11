@@ -4,39 +4,35 @@ import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 
-import javax.swing.*;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.*;
 
 /**
- * Class untuk export jadwal ke Excel dengan format:
- * - Satu minggu penuh (tidak dipotong per hari)
- * - Kolom: Hari, Waktu, Jam Ke, lalu semua kelas
- * - Isi jadwal hanya ID guru
- * - Menyertakan sholat dhuha, istirahat, sholat zuhur/kultum/jumat
+ * ExcelExporter versi terbaru:
+ * - Sheet "Jadwal Pelajaran" (ID guru) — seperti semula
+ * - Sheet "Per Kelas" (satu sheet untuk semua kelas; isi = NAMA GURU)
+ * - Sheet "Per Guru" (satu sheet untuk semua guru; isi = MATA PELAJARAN)
  */
 public class ExcelExporter {
     private final Schedule schedule;
 
-    // Waktu per jam pelajaran
     private static final String[][] TIME_SLOTS = {
-        {"06.30 - 07.15", "Sholat Dhuha"},
-        {"07.15 - 07.55", "1"},
-        {"07.55 - 08.35", "2"},
-        {"08.35 - 09.15", "3"},
-        {"09.15 - 09.55", "4"},
-        {"09.55 - 10.25", "Istirahat"},
-        {"10.25 - 11.05", "5"},
-        {"11.05 - 11.45", "6"},
-        {"11.45 - 12.20", "Sholat Zuhur dan Kultum"}, // Akan diganti untuk Jumat
-        {"12.20 - 13.00", "7"},
-        {"13.00 - 13.40", "8"},
-        {"13.40 - 14.20", "9"},
-        {"14.20 - 15.00", "10"}
+            {"06.30 - 07.15", "Sholat Dhuha"},
+            {"07.15 - 07.55", "1"},
+            {"07.55 - 08.35", "2"},
+            {"08.35 - 09.15", "3"},
+            {"09.15 - 09.55", "4"},
+            {"09.55 - 10.25", "Istirahat"},
+            {"10.25 - 11.05", "5"},
+            {"11.05 - 11.45", "6"},
+            {"11.45 - 12.20", "Sholat Zuhur dan Kultum"},
+            {"12.20 - 13.00", "7"},
+            {"13.00 - 13.40", "8"},
+            {"13.40 - 14.20", "9"},
+            {"14.20 - 15.00", "10"}
     };
 
-    // Jam pelajaran per hari
     private static final Map<String, Integer> PERIODS_PER_DAY = new HashMap<>();
     static {
         PERIODS_PER_DAY.put("Senin", 10);
@@ -52,9 +48,8 @@ public class ExcelExporter {
 
     public void exportToExcel(String filePath) throws IOException {
         Workbook workbook = new XSSFWorkbook();
-        Sheet sheet = workbook.createSheet("Jadwal Pelajaran");
 
-        // Buat styles
+        // Styles
         CellStyle headerStyle = createHeaderStyle(workbook);
         CellStyle dayStyle = createDayStyle(workbook);
         CellStyle timeStyle = createTimeStyle(workbook);
@@ -62,68 +57,68 @@ public class ExcelExporter {
         CellStyle specialStyle = createSpecialStyle(workbook);
         CellStyle centerStyle = createCenterStyle(workbook);
 
-        // Get sorted classes
+        // sorted classes
         List<String> classes = new ArrayList<>(schedule.getAllClasses());
         Collections.sort(classes);
 
-        // Buat header
+        // collect teachers from schedule (use teacher name if available, else ID)
+        List<String> teachers = collectAllTeachers();
+        Collections.sort(teachers);
+
+        // 1) main sheet (ID guru) — existing format
+        Sheet mainSheet = workbook.createSheet("Jadwal Pelajaran (ID)");
+        fillMainSheet(mainSheet, classes, headerStyle, dayStyle, timeStyle, dataStyle, specialStyle, centerStyle);
+
+        // 2) single sheet "Per Kelas" (kolom per kelas, isi = nama guru)
+        Sheet perKelasSheet = workbook.createSheet("Jadwal Guru");
+        fillPerKelasSheet(perKelasSheet, classes, headerStyle, dayStyle, timeStyle, dataStyle, specialStyle, centerStyle);
+
+        // 3) single sheet "Per Guru" (kolom per guru, isi = mata pelajaran)
+        Sheet perGuruSheet = workbook.createSheet("Jadwal Pelajaran");
+        fillPerGuruSheet(perGuruSheet, teachers, classes, headerStyle, dayStyle, timeStyle, dataStyle, specialStyle, centerStyle);
+
+        // write file
+        try (FileOutputStream out = new FileOutputStream(filePath)) {
+            workbook.write(out);
+        }
+        workbook.close();
+    }
+
+    // ---------- sheet utama (ID guru) ----------
+    private void fillMainSheet(Sheet sheet, List<String> classes,
+                               CellStyle headerStyle, CellStyle dayStyle, CellStyle timeStyle,
+                               CellStyle dataStyle, CellStyle specialStyle, CellStyle centerStyle) {
         int rowNum = 0;
         Row headerRow = sheet.createRow(rowNum++);
-
-        // Kolom: Hari, Waktu, Jam Ke, lalu semua kelas
-        Cell cell = headerRow.createCell(0);
-        cell.setCellValue("HARI");
-        cell.setCellStyle(headerStyle);
-
-        cell = headerRow.createCell(1);
-        cell.setCellValue("WAKTU");
-        cell.setCellStyle(headerStyle);
-
-        cell = headerRow.createCell(2);
-        cell.setCellValue("JAM KE");
-        cell.setCellStyle(headerStyle);
-
+        createHeaderCells(headerRow, headerStyle, "HARI", "WAKTU", "JAM KE");
         for (int i = 0; i < classes.size(); i++) {
-            cell = headerRow.createCell(3 + i);
-            cell.setCellValue(classes.get(i));
-            cell.setCellStyle(headerStyle);
+            Cell c = headerRow.createCell(3 + i);
+            c.setCellValue(classes.get(i));
+            c.setCellStyle(headerStyle);
         }
 
-        // Isi data per hari
         List<String> days = schedule.getDays();
-
         for (String day : days) {
-            int maxPeriods = PERIODS_PER_DAY.get(day);
+            int maxPeriods = PERIODS_PER_DAY.getOrDefault(day, 0);
             int startRowForDay = rowNum;
 
-            // Iterasi semua time slots
             for (String[] timeSlot : TIME_SLOTS) {
                 String time = timeSlot[0];
                 String jamKe = timeSlot[1];
 
-                // Skip jika melebihi maksimal period untuk hari ini
-                if (jamKe.matches("\\d+")) { // Jika ini jam pelajaran (bukan sholat/istirahat)
-                    int period = Integer.parseInt(jamKe);
-                    if (period > maxPeriods) {
-                        continue; // Skip jam ini untuk hari ini
-                    }
+                if (jamKe.matches("\\d+")) {
+                    int p = Integer.parseInt(jamKe);
+                    if (p > maxPeriods) continue;
                 }
 
-                Row dataRow = sheet.createRow(rowNum++);
+                Row r = sheet.createRow(rowNum++);
+                Cell cell = r.createCell(0);
+                cell.setCellValue(day); cell.setCellStyle(dayStyle);
 
-                // Kolom Hari (akan di-merge nanti)
-                cell = dataRow.createCell(0);
-                cell.setCellValue(day);
-                cell.setCellStyle(dayStyle);
+                cell = r.createCell(1);
+                cell.setCellValue(time); cell.setCellStyle(timeStyle);
 
-                // Kolom Waktu
-                cell = dataRow.createCell(1);
-                cell.setCellValue(time);
-                cell.setCellStyle(timeStyle);
-
-                // Kolom Jam Ke
-                cell = dataRow.createCell(2);
-                // Khusus untuk Jumat, ganti "Sholat Zuhur dan Kultum" menjadi "Sholat Jumat"
+                cell = r.createCell(2);
                 if (day.equals("Jumat") && jamKe.equals("Sholat Zuhur dan Kultum")) {
                     cell.setCellValue("Sholat Jumat");
                 } else {
@@ -131,57 +126,222 @@ public class ExcelExporter {
                 }
                 cell.setCellStyle(centerStyle);
 
-                // Isi data untuk setiap kelas
-                boolean isSpecialTime = !jamKe.matches("\\d+"); // Sholat atau istirahat
-
-                for (int classIdx = 0; classIdx < classes.size(); classIdx++) {
-                    cell = dataRow.createCell(3 + classIdx);
-
-                    if (isSpecialTime) {
-                        // Untuk sholat/istirahat, beri tanda "-"
-                        cell.setCellValue("-");
-                        cell.setCellStyle(specialStyle);
+                boolean isSpecial = !jamKe.matches("\\d+");
+                for (int ci = 0; ci < classes.size(); ci++) {
+                    Cell dataCell = r.createCell(3 + ci);
+                    if (isSpecial) {
+                        dataCell.setCellValue("-"); dataCell.setCellStyle(specialStyle);
                     } else {
-                        // Untuk jam pelajaran, ambil ID guru
-                        String className = classes.get(classIdx);
                         int period = Integer.parseInt(jamKe);
-
-                        TimeSlot slot = schedule.getSlot(day, period, className);
-                        if (slot != null && !slot.isEmpty()) {
-                            Assignment assignment = slot.getAssignment();
-                            cell.setCellValue(assignment.getId());
-                            cell.setCellStyle(dataStyle);
+                        TimeSlot slot = schedule.getSlot(day, period, classes.get(ci));
+                        if (slot != null && !slot.isEmpty() && slot.getAssignment() != null) {
+                            dataCell.setCellValue(slot.getAssignment().getId());
                         } else {
-                            cell.setCellValue("");
-                            cell.setCellStyle(dataStyle);
+                            dataCell.setCellValue("");
                         }
+                        dataCell.setCellStyle(dataStyle);
                     }
                 }
             }
 
-            // Merge cells untuk kolom Hari
-            int endRowForDay = rowNum - 1;
-            if (endRowForDay > startRowForDay) {
-                sheet.addMergedRegion(new CellRangeAddress(startRowForDay, endRowForDay, 0, 0));
+            int endRow = rowNum - 1;
+            if (endRow > startRowForDay) {
+                sheet.addMergedRegion(new CellRangeAddress(startRowForDay, endRow, 0, 0));
             }
         }
 
-        // Set column widths
-        sheet.setColumnWidth(0, 3000);  // Hari
-        sheet.setColumnWidth(1, 4500);  // Waktu
-        sheet.setColumnWidth(2, 5500);  // Jam Ke
-        for (int i = 0; i < classes.size(); i++) {
-            sheet.setColumnWidth(3 + i, 3000); // Kelas
-        }
-
-        // Write to file
-        try (FileOutputStream outputStream = new FileOutputStream(filePath)) {
-            workbook.write(outputStream);
-        }
-
-        workbook.close();
+        // column widths
+        sheet.setColumnWidth(0, 3000); sheet.setColumnWidth(1, 4500); sheet.setColumnWidth(2, 5500);
+        for (int i = 0; i < classes.size(); i++) sheet.setColumnWidth(3 + i, 3000);
     }
 
+    // ---------- sheet "Per Kelas" (satu sheet, kolom per kelas; isi = NAMA GURU) ----------
+    private void fillPerKelasSheet(Sheet sheet, List<String> classes,
+                                   CellStyle headerStyle, CellStyle dayStyle, CellStyle timeStyle,
+                                   CellStyle dataStyle, CellStyle specialStyle, CellStyle centerStyle) {
+        int rowNum = 0;
+        Row headerRow = sheet.createRow(rowNum++);
+        createHeaderCells(headerRow, headerStyle, "HARI", "WAKTU", "JAM KE");
+        for (int i = 0; i < classes.size(); i++) {
+            Cell c = headerRow.createCell(3 + i);
+            c.setCellValue(classes.get(i));
+            c.setCellStyle(headerStyle);
+        }
+
+        List<String> days = schedule.getDays();
+        for (String day : days) {
+            int maxPeriods = PERIODS_PER_DAY.getOrDefault(day, 0);
+            int startRowForDay = rowNum;
+
+            for (String[] timeSlot : TIME_SLOTS) {
+                String time = timeSlot[0];
+                String jamKe = timeSlot[1];
+
+                if (jamKe.matches("\\d+")) {
+                    int p = Integer.parseInt(jamKe);
+                    if (p > maxPeriods) continue;
+                }
+
+                Row r = sheet.createRow(rowNum++);
+                Cell cell = r.createCell(0);
+                cell.setCellValue(day); cell.setCellStyle(dayStyle);
+
+                cell = r.createCell(1);
+                cell.setCellValue(time); cell.setCellStyle(timeStyle);
+
+                cell = r.createCell(2);
+                if (day.equals("Jumat") && jamKe.equals("Sholat Zuhur dan Kultum")) {
+                    cell.setCellValue("Sholat Jumat");
+                } else {
+                    cell.setCellValue(jamKe);
+                }
+                cell.setCellStyle(centerStyle);
+
+                boolean isSpecial = !jamKe.matches("\\d+");
+                for (int ci = 0; ci < classes.size(); ci++) {
+                    Cell dataCell = r.createCell(3 + ci);
+                    if (isSpecial) {
+                        dataCell.setCellValue("-"); dataCell.setCellStyle(specialStyle);
+                    } else {
+                        int period = Integer.parseInt(jamKe);
+                        String className = classes.get(ci);
+                        TimeSlot slot = schedule.getSlot(day, period, className);
+                        if (slot != null && !slot.isEmpty() && slot.getAssignment() != null) {
+                            Assignment a = slot.getAssignment();
+                            String teacherName = a.getTeacher();
+                            if (teacherName == null || teacherName.trim().isEmpty()) teacherName = a.getId();
+                            dataCell.setCellValue(teacherName);
+                        } else {
+                            dataCell.setCellValue("");
+                        }
+                        dataCell.setCellStyle(dataStyle);
+                    }
+                }
+            }
+
+            int endRow = rowNum - 1;
+            if (endRow > startRowForDay) {
+                sheet.addMergedRegion(new CellRangeAddress(startRowForDay, endRow, 0, 0));
+            }
+        }
+
+        // widths
+        sheet.setColumnWidth(0, 3000); sheet.setColumnWidth(1, 4500); sheet.setColumnWidth(2, 4000);
+        for (int i = 0; i < classes.size(); i++) sheet.setColumnWidth(3 + i, 6000);
+    }
+
+    // ---------- sheet "Per Guru" (diubah: satu sheet, kolom per kelas; isi = MATA PELAJARAN per kelas) ----------
+    private void fillPerGuruSheet(Sheet sheet, List<String> teachers, List<String> classes,
+                                  CellStyle headerStyle, CellStyle dayStyle, CellStyle timeStyle,
+                                  CellStyle dataStyle, CellStyle specialStyle, CellStyle centerStyle) {
+        int rowNum = 0;
+        Row headerRow = sheet.createRow(rowNum++);
+        createHeaderCells(headerRow, headerStyle, "HARI", "WAKTU", "JAM KE");
+        for (int i = 0; i < classes.size(); i++) {
+            Cell c = headerRow.createCell(3 + i);
+            c.setCellValue(classes.get(i));
+            c.setCellStyle(headerStyle);
+        }
+
+        List<String> days = schedule.getDays();
+        for (String day : days) {
+            int maxPeriods = PERIODS_PER_DAY.getOrDefault(day, 0);
+            int startRowForDay = rowNum;
+
+            for (String[] timeSlot : TIME_SLOTS) {
+                String time = timeSlot[0];
+                String jamKe = timeSlot[1];
+
+                if (jamKe.matches("\\d+")) {
+                    int p = Integer.parseInt(jamKe);
+                    if (p > maxPeriods) continue;
+                }
+
+                Row r = sheet.createRow(rowNum++);
+                Cell cell = r.createCell(0);
+                cell.setCellValue(day); cell.setCellStyle(dayStyle);
+
+                cell = r.createCell(1);
+                cell.setCellValue(time); cell.setCellStyle(timeStyle);
+
+                cell = r.createCell(2);
+                if (day.equals("Jumat") && jamKe.equals("Sholat Zuhur dan Kultum")) {
+                    cell.setCellValue("Sholat Jumat");
+                } else {
+                    cell.setCellValue(jamKe);
+                }
+                cell.setCellStyle(centerStyle);
+
+                boolean isSpecial = !jamKe.matches("\\d+");
+                for (int ci = 0; ci < classes.size(); ci++) {
+                    Cell dataCell = r.createCell(3 + ci);
+                    if (isSpecial) {
+                        dataCell.setCellValue("-"); dataCell.setCellStyle(specialStyle);
+                    } else {
+                        int period = Integer.parseInt(jamKe);
+                        String className = classes.get(ci);
+                        TimeSlot slot = schedule.getSlot(day, period, className);
+                        if (slot != null && !slot.isEmpty() && slot.getAssignment() != null) {
+                            Assignment a = slot.getAssignment();
+                            String subject = a.getSubject();
+                            dataCell.setCellValue(subject != null ? subject : "");
+                        } else {
+                            dataCell.setCellValue("");
+                        }
+                        dataCell.setCellStyle(dataStyle);
+                    }
+                }
+            }
+
+            int endRow = rowNum - 1;
+            if (endRow > startRowForDay) {
+                sheet.addMergedRegion(new CellRangeAddress(startRowForDay, endRow, 0, 0));
+            }
+        }
+
+        // widths
+        sheet.setColumnWidth(0, 3000); sheet.setColumnWidth(1, 4500); sheet.setColumnWidth(2, 4000);
+        for (int i = 0; i < classes.size(); i++) sheet.setColumnWidth(3 + i, 6000);
+    }
+
+    // ---------- utilities ----------
+    private void createHeaderCells(Row headerRow, CellStyle headerStyle, String col0, String col1, String col2) {
+        Cell c = headerRow.createCell(0);
+        c.setCellValue(col0); c.setCellStyle(headerStyle);
+        c = headerRow.createCell(1);
+        c.setCellValue(col1); c.setCellStyle(headerStyle);
+        c = headerRow.createCell(2);
+        c.setCellValue(col2); c.setCellStyle(headerStyle);
+    }
+
+    // collect all teachers (prefer nama guru, fallback ke id)
+    private List<String> collectAllTeachers() {
+        Set<String> set = new HashSet<>();
+        Map<String, Map<String, List<TimeSlot>>> full = schedule.getFullSchedule();
+        for (Map<String, List<TimeSlot>> dayMap : full.values()) {
+            for (List<TimeSlot> slots : dayMap.values()) {
+                for (TimeSlot slot : slots) {
+                    if (slot != null && !slot.isEmpty() && slot.getAssignment() != null) {
+                        Assignment a = slot.getAssignment();
+                        String teacherName = a.getTeacher();
+                        String id = a.getId();
+                        if (teacherName != null && !teacherName.trim().isEmpty()) set.add(teacherName);
+                        else if (id != null && !id.trim().isEmpty()) set.add(id);
+                    }
+                }
+            }
+        }
+        return new ArrayList<>(set);
+    }
+
+    private String sanitizeSheetName(String name) {
+        if (name == null) return "sheet";
+        String s = name.replaceAll("[\\\\/?*\\[\\]]", "_");
+        if (s.length() > 31) s = s.substring(0, 31);
+        return s;
+    }
+
+    // ---------- styles ----------
     private CellStyle createHeaderStyle(Workbook workbook) {
         CellStyle style = workbook.createCellStyle();
         Font font = workbook.createFont();

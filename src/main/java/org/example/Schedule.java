@@ -82,6 +82,56 @@ public class Schedule {
         }
         return true;
     }
+    // Mengembalikan semua teacher id yang muncul di schedule (tidak duplikat)
+    public Set<String> getAllTeachers() {
+        Set<String> teachers = new HashSet<>();
+        for (String day : days) {
+            for (String className : allClasses) {
+                List<TimeSlot> slots = getSlotsForClass(day, className);
+                for (TimeSlot slot : slots) {
+                    if (!slot.isEmpty() && slot.getAssignment() != null) {
+                        String teacher = slot.getAssignment().getTeacher();
+                        if (teacher != null && !teacher.isEmpty()) {
+                            teachers.add(teacher);
+                        }
+                    }
+                }
+            }
+        }
+        return teachers;
+    }
+
+    // Mencari nama kelas yang diajar oleh teacher pada hari+period tertentu.
+// Mengembalikan nama kelas pertama yang ditemukan, atau empty string jika tidak ada.
+    public String getClassTaughtByTeacherAt(String day, int period, String teacher) {
+        if (teacher == null || teacher.isEmpty()) return "";
+        for (String className : allClasses) {
+            TimeSlot slot = getSlot(day, period, className);
+            if (slot != null && !slot.isEmpty() && slot.getAssignment() != null) {
+                if (teacher.equals(slot.getAssignment().getTeacher())) {
+                    return className;
+                }
+            }
+        }
+        return "";
+    }
+
+    // Kembalikan list TimeSlot yang diajar teacher pada hari tertentu (dapat dipakai untuk sheet per-guru)
+    public List<TimeSlot> getSlotsForTeacher(String day, String teacher) {
+        List<TimeSlot> result = new ArrayList<>();
+        if (teacher == null || teacher.isEmpty()) return result;
+        for (String className : allClasses) {
+            List<TimeSlot> slots = getSlotsForClass(day, className);
+            for (TimeSlot slot : slots) {
+                if (!slot.isEmpty() && slot.getAssignment() != null &&
+                        teacher.equals(slot.getAssignment().getTeacher())) {
+                    result.add(slot);
+                }
+            }
+        }
+        return result;
+    }
+
 
     /**
      * Hitung berapa jam guru sudah mengajar pada hari tertentu
