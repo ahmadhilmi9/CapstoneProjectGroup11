@@ -48,6 +48,57 @@ public class ExcelExporter {
         this.schedule = schedule;
     }
 
+    public void exporttoexcel3exp(String filePath) throws IOException {
+        Workbook workbook3 = new XSSFWorkbook();
+
+        CellStyle headerStyle = createHeaderStyle(workbook3);
+        CellStyle dayStyle = createDayStyle(workbook3);
+        CellStyle timeStyle = createTimeStyle(workbook3);
+        CellStyle dataStyle = createDataStyle(workbook3);
+        CellStyle specialStyle = createSpecialStyle(workbook3);
+        CellStyle centerStyle = createCenterStyle(workbook3);
+
+        List<String> classes = new ArrayList<>(schedule.getAllClasses());
+        Collections.sort(classes);
+
+        List<String> teachers = collectAllTeachers();
+        Collections.sort(teachers);
+
+        // per kelas
+        createPerClassSheets(workbook3, classes, headerStyle, dayStyle, timeStyle, dataStyle, specialStyle);
+
+        try (FileOutputStream out = new FileOutputStream(filePath)) {
+            workbook3.write(out);
+        }
+        workbook3.close();
+    }
+
+    public void exporttoexcel2exp(String filePath) throws IOException {
+        Workbook workbook2 = new XSSFWorkbook();
+
+        CellStyle headerStyle = createHeaderStyle(workbook2);
+        CellStyle dayStyle = createDayStyle(workbook2);
+        CellStyle timeStyle = createTimeStyle(workbook2);
+        CellStyle dataStyle = createDataStyle(workbook2);
+        CellStyle specialStyle = createSpecialStyle(workbook2);
+        CellStyle centerStyle = createCenterStyle(workbook2);
+
+        List<String> classes = new ArrayList<>(schedule.getAllClasses());
+        Collections.sort(classes);
+
+        List<String> teachers = collectAllTeachers();
+        Collections.sort(teachers);
+
+        //buat file baru Jadwal Guru
+        createPerTeacherSheets(workbook2, teachers, classes, headerStyle, dayStyle, timeStyle, dataStyle);
+
+        try (FileOutputStream out = new FileOutputStream(filePath)) {
+            workbook2.write(out);
+        }
+        workbook2.close();
+    }
+
+
     public void exportToExcel(String filePath) throws IOException {
         Workbook workbook = new XSSFWorkbook();
 
@@ -80,10 +131,10 @@ public class ExcelExporter {
         //fillPerGuruSheet(perGuruSheet, teachers, classes, headerStyle, dayStyle, timeStyle, dataStyle, specialStyle, centerStyle);
 
         // 4) sheets per teacher — each sheet named after teacher, contents: HARI | JAM KE | WAKTU | KELAS | MATA PELAJARAN
-        createPerTeacherSheets(workbook, teachers, classes, headerStyle, dayStyle, timeStyle, dataStyle);
+        //createPerTeacherSheets(workbook, teachers, classes, headerStyle, dayStyle, timeStyle, dataStyle);
 
         //5) per kelas
-        createPerClassSheets(workbook, classes, headerStyle, dayStyle, timeStyle, dataStyle, specialStyle);
+        //createPerClassSheets(workbook, classes, headerStyle, dayStyle, timeStyle, dataStyle, specialStyle);
 
         // write file
         try (FileOutputStream out = new FileOutputStream(filePath)) {

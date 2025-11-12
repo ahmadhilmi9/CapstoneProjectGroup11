@@ -40,13 +40,15 @@ public class ScheduleResultGUI extends JFrame {
 
         // Panel untuk tombol export di atas
         JPanel topPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 10));
-        JButton exportButton = new JButton("📥 Export to Excel");
+        JButton exportButton = new JButton("Export to Excel");
         exportButton.setFont(new Font("Arial", Font.BOLD, 13));
         exportButton.setBackground(new Color(34, 139, 34));
         exportButton.setForeground(Color.WHITE);
         exportButton.setFocusPainted(false);
         exportButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
         exportButton.addActionListener(e -> exportToExcel());
+        exportButton.addActionListener(e -> exportToexcel2());
+        exportButton.addActionListener(e -> exportToexcel3());
         topPanel.add(exportButton);
         mainPanel.add(topPanel, BorderLayout.NORTH);
 
@@ -649,4 +651,127 @@ public class ScheduleResultGUI extends JFrame {
             }
         }
     }
+
+    private void exportToexcel2() {
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setDialogTitle("Simpan Jadwal Guru ke Excel");
+        fileChooser.setSelectedFile(new java.io.File("Jadwal_Guru.xlsx"));
+
+        // Filter untuk file Excel
+        javax.swing.filechooser.FileNameExtensionFilter filter =
+                new javax.swing.filechooser.FileNameExtensionFilter("Excel Files (*.xlsx)", "xlsx");
+        fileChooser.setFileFilter(filter);
+
+        int userSelection = fileChooser.showSaveDialog(this);
+
+        if (userSelection == JFileChooser.APPROVE_OPTION) {
+            String filePath = fileChooser.getSelectedFile().getAbsolutePath();
+
+            // Pastikan file berakhiran .xlsx
+            if (!filePath.toLowerCase().endsWith(".xlsx")) {
+                filePath += ".xlsx";
+            }
+
+            try {
+                // Export menggunakan ExcelExporter
+                ExcelExporter exporter = new ExcelExporter(schedule);
+                exporter.exporttoexcel2exp(filePath);
+
+                // Tampilkan pesan sukses
+                int result = JOptionPane.showConfirmDialog(
+                        this,
+                        "Jadwal berhasil diekspor ke:\n" + filePath + "\n\nBuka file sekarang?",
+                        "Export Berhasil",
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.INFORMATION_MESSAGE
+                );
+
+                // Jika user ingin buka file
+                if (result == JOptionPane.YES_OPTION) {
+                    try {
+                        Desktop.getDesktop().open(new java.io.File(filePath));
+                    } catch (Exception ex) {
+                        JOptionPane.showMessageDialog(
+                                this,
+                                "File berhasil disimpan, tetapi tidak dapat dibuka secara otomatis.\n" +
+                                        "Silakan buka manual: " + filePath,
+                                "Info",
+                                JOptionPane.INFORMATION_MESSAGE
+                        );
+                    }
+                }
+
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Error saat mengekspor ke Excel:\n" + ex.getMessage(),
+                        "Error",
+                        JOptionPane.ERROR_MESSAGE
+                );
+                ex.printStackTrace();
+            }
+        }
+    }
+
+    private void exportToexcel3() {
+        JFileChooser fileChooser = new JFileChooser();
+        fileChooser.setDialogTitle("Simpan Jadwal Kelas ke Excel");
+        fileChooser.setSelectedFile(new java.io.File("Jadwal_Kelas.xlsx"));
+
+        // Filter untuk file Excel
+        javax.swing.filechooser.FileNameExtensionFilter filter =
+                new javax.swing.filechooser.FileNameExtensionFilter("Excel Files (*.xlsx)", "xlsx");
+        fileChooser.setFileFilter(filter);
+
+        int userSelection = fileChooser.showSaveDialog(this);
+
+        if (userSelection == JFileChooser.APPROVE_OPTION) {
+            String filePath = fileChooser.getSelectedFile().getAbsolutePath();
+
+            // Pastikan file berakhiran .xlsx
+            if (!filePath.toLowerCase().endsWith(".xlsx")) {
+                filePath += ".xlsx";
+            }
+
+            try {
+                // Export menggunakan ExcelExporter
+                ExcelExporter exporter = new ExcelExporter(schedule);
+                exporter.exporttoexcel3exp(filePath);
+
+                // Tampilkan pesan sukses
+                int result = JOptionPane.showConfirmDialog(
+                        this,
+                        "Jadwal berhasil diekspor ke:\n" + filePath + "\n\nBuka file sekarang?",
+                        "Export Berhasil",
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.INFORMATION_MESSAGE
+                );
+
+                // Jika user ingin buka file
+                if (result == JOptionPane.YES_OPTION) {
+                    try {
+                        Desktop.getDesktop().open(new java.io.File(filePath));
+                    } catch (Exception ex) {
+                        JOptionPane.showMessageDialog(
+                                this,
+                                "File berhasil disimpan, tetapi tidak dapat dibuka secara otomatis.\n" +
+                                        "Silakan buka manual: " + filePath,
+                                "Info",
+                                JOptionPane.INFORMATION_MESSAGE
+                        );
+                    }
+                }
+
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(
+                        this,
+                        "Error saat mengekspor ke Excel:\n" + ex.getMessage(),
+                        "Error",
+                        JOptionPane.ERROR_MESSAGE
+                );
+                ex.printStackTrace();
+            }
+        }
+    }
 }
+
