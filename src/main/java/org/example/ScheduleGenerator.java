@@ -27,18 +27,19 @@ public class ScheduleGenerator {
     private static final int PJOK_MAX_PERIOD_SINGLE = 10;
 
     // Simulated Annealing parameters - OPTIMIZED
-    private static final double INITIAL_TEMPERATURE = 3000.0;  // Increased
-    private static final double COOLING_RATE = 0.9985;  // Slower cooling
-    private static final double MIN_TEMPERATURE = 0.01;
+    private static final double INITIAL_TEMPERATURE = 8000.0;  // Increased significantly
+    private static final double COOLING_RATE = 0.9995;  // Even slower cooling
+    private static final double MIN_TEMPERATURE = 0.0001;
 
     // Tabu Search parameters - OPTIMIZED
-    private static final int TABU_TENURE = 20;  // Increased
-    private static final int MAX_ITERATIONS = 3000;  // Increased
-    private static final long MAX_TIME_MS = 900000;  // 15 minutes
+    private static final int TABU_TENURE = 40;  // Increased more
+    private static final int MAX_ITERATIONS = 8000;  // Increased significantly
+    private static final long MAX_TIME_MS = 1800000;  // 30 minutes max per run
 
     // MULTI-START parameters for optimal consistency
-    private static final int NUM_RUNS = 5;  // Run 5 times and pick best
-    private static final long[] SEEDS = {42L, 123456L, 789012L, 345678L, 901234L};
+    private static final int NUM_RUNS = 20;  // Increased from 10 to 20 for better consistency
+    private static final long[] SEEDS = {42L, 123456L, 789012L, 345678L, 901234L, 567890L, 246810L, 135790L, 975310L, 864209L,
+                                         111213L, 141516L, 171819L, 202122L, 232425L, 262728L, 293031L, 323334L, 353637L, 383940L};
     private int currentRunNumber = 0;  // Track current run
 
     private static final Set<String> MGMP_SUBJECTS = new HashSet<>(Arrays.asList(
@@ -46,10 +47,10 @@ public class ScheduleGenerator {
             "B. ARAB", "AL-QUR'AN HADITS", "AL QUR'AN HADITS", "BAHASA ARAB", "FIKIH"
     ));
 
-    // Pola distribusi mata pelajaran - LEBIH KETAT DAN BERURUTAN
+    // Pola distribusi mata pelajaran - DISESUAIKAN DENGAN REQUIREMENT BARU
     private static final Map<String, int[]> SUBJECT_DISTRIBUTION_PATTERNS = new HashMap<>();
     static {
-        // Matematika dan IPA: 3-2 (5 jam total, 2 sesi berurutan)
+        // Matematika dan IPA: 3-2 (5 jam total, sesi 3 jam berurutan + sesi 2 jam berurutan)
         SUBJECT_DISTRIBUTION_PATTERNS.put("MATEMATIKA_5", new int[]{3, 2});
         SUBJECT_DISTRIBUTION_PATTERNS.put("IPA_5", new int[]{3, 2});
 
@@ -62,12 +63,12 @@ public class ScheduleGenerator {
         SUBJECT_DISTRIBUTION_PATTERNS.put("B. INGGRIS_4", new int[]{2, 2});
         SUBJECT_DISTRIBUTION_PATTERNS.put("IPS_4", new int[]{2, 2});
 
-        // PJOK 3 jam: 2-1 (2 jam berurutan di jam 1-4, 1 jam bebas)
+        // PJOK 3 jam: WAJIB 2-1 (2 jam berurutan di hari pertama [Senin preferensi], 1 jam di hari berikutnya [Selasa preferensi])
         SUBJECT_DISTRIBUTION_PATTERNS.put("PJOK_3", new int[]{2, 1});
 
-        // Mapel lain 3 jam: Variasi 2-1 (prioritas) atau 3 berurutan
-        SUBJECT_DISTRIBUTION_PATTERNS.put("DEFAULT_3_SPLIT", new int[]{2, 1}); // Pola 2-1
-        SUBJECT_DISTRIBUTION_PATTERNS.put("DEFAULT_3_SINGLE", new int[]{3});    // Pola 3 berurutan
+        // Mapel lain 3 jam: 2-1 (prioritas utama) atau 3 berurutan (alternatif)
+        SUBJECT_DISTRIBUTION_PATTERNS.put("DEFAULT_3_SPLIT", new int[]{2, 1}); // Pola 2-1 (prioritas)
+        SUBJECT_DISTRIBUTION_PATTERNS.put("DEFAULT_3_SINGLE", new int[]{3});    // Pola 3 berurutan (alternatif)
 
         // Mapel lain 2 jam: 2 (berurutan dalam 1 sesi)
         SUBJECT_DISTRIBUTION_PATTERNS.put("DEFAULT_2", new int[]{2});
@@ -309,6 +310,46 @@ public class ScheduleGenerator {
             placeAssignmentInConsecutivePattern(schedule, assignment);
         }
 
+        // FASE 1.5: AGGRESSIVE COMPLETION for remaining hours
+        System.out.println("   → Phase 1.5: Aggressive completion for remaining hours...");
+        for (int round = 0; round < 1000; round++) {
+            List<Assignment> incomplete = getIncompleteAssignments(schedule);
+            if (incomplete.isEmpty()) break;
+
+            boolean progress = false;
+
+            // Sort by priority: most incomplete first
+            incomplete.sort((a, b) -> {
+                int aRemaining = a.getTotalHours() - schedule.getScheduledHours(a);
+                int bRemaining = b.getTotalHours() - schedule.getScheduledHours(b);
+                return Integer.compare(bRemaining, aRemaining);
+            });
+
+            for (Assignment assignment : incomplete) {
+                int remaining = assignment.getTotalHours() - schedule.getScheduledHours(assignment);
+
+                // Try to place remaining hours with consecutive pattern if possible
+                if (remaining >= 2) {
+                    // Try to place 2 consecutive hours
+                    if (placeTwoConsecutiveHours(schedule, assignment)) {
+                        progress = true;
+                        continue;
+                    }
+                }
+
+                // Otherwise place one hour at a time
+                if (placeOneHourConstrained(schedule, assignment)) {
+                    progress = true;
+                } else if (placeOneHourRelaxed(schedule, assignment)) {
+                    progress = true;
+                } else if (forcePlace(schedule, assignment)) {
+                    progress = true;
+                }
+            }
+
+            if (!progress) break;
+        }
+
         // FASE 2: Fill remaining gaps untuk assignment yang belum lengkap
         System.out.println("   → Phase 2: Filling remaining gaps...");
         for (int round = 0; round < 500; round++) {
@@ -331,6 +372,7 @@ public class ScheduleGenerator {
     /**
      * METODE BARU: Menempatkan assignment dengan pola berurutan
      * Misalnya: IPA 5 jam -> 3 jam berurutan + 2 jam berurutan
+     * PJOK KHUSUS: 2 jam berurutan di SENIN (jam 1-4) + 1 jam di SELASA
      */
     private boolean placeAssignmentInConsecutivePattern(Schedule schedule, Assignment assignment) {
         int[] pattern = getDistributionPattern(assignment);
@@ -338,80 +380,205 @@ public class ScheduleGenerator {
         String teacher = assignment.getTeacher();
         boolean isPJOK = isPJOKSubject(assignment.getSubject());
         boolean isMGMP = mgmpTeachers.contains(teacher);
-        
-        System.out.printf("      Placing %s [%s] with pattern %s\n", 
+
+        System.out.printf("      Placing %s [%s] with pattern %s\n",
             assignment.getSubject(), className, Arrays.toString(pattern));
 
+        // SPECIAL HANDLING untuk PJOK 3 jam: WAJIB 2 jam di Senin + 1 jam di Selasa
+        if (isPJOK && assignment.getTotalHours() == 3) {
+            return placePJOKWithStrictPattern(schedule, assignment);
+        }
+
         // Untuk setiap blok dalam pola (misal [3, 2])
-        for (int blockSize : pattern) {
+        int totalPlaced = 0;
+        for (int blockIdx = 0; blockIdx < pattern.length; blockIdx++) {
+            int blockSize = pattern[blockIdx];
             boolean placed = false;
-            
+
             // Coba tempatkan blok berurutan di setiap hari
             for (int dayIdx = 0; dayIdx < DAYS.length && !placed; dayIdx++) {
                 String day = DAYS[dayIdx];
                 int maxPeriod = PERIODS_PER_DAY[dayIdx];
-                
+
                 // Apply constraints
                 if (isPJOK && blockSize >= 2) {
                     maxPeriod = Math.min(maxPeriod, PJOK_MAX_PERIOD_FOR_DOUBLE);
                 } else if (isPJOK) {
                     maxPeriod = Math.min(maxPeriod, PJOK_MAX_PERIOD_SINGLE);
                 }
-                
+
                 if (isMGMP && day.equals("Rabu")) {
                     maxPeriod = Math.min(maxPeriod, MGMP_MAX_PERIOD_RABU);
                 }
-                
+
                 // Cek apakah subject sudah ada di hari ini
                 int existingHoursToday = countSubjectHoursOnDay(schedule, assignment, day);
                 if (existingHoursToday > 0) continue; // Skip, cari hari lain untuk distribusi merata
-                
+
                 // Cari slot berurutan sebanyak blockSize
                 List<TimeSlot> daySlots = schedule.getSlotsForClass(day, className);
                 for (int startPeriod = 1; startPeriod <= maxPeriod - blockSize + 1; startPeriod++) {
                     boolean canPlace = true;
-                    
+
                     // Cek apakah semua slot dalam blok tersedia
                     for (int offset = 0; offset < blockSize; offset++) {
                         int period = startPeriod + offset;
                         TimeSlot slot = schedule.getSlot(day, period, className);
-                        
+
                         if (slot == null || !slot.isEmpty()) {
                             canPlace = false;
                             break;
                         }
-                        
+
                         if (!schedule.isTeacherAvailable(teacher, day, period, className)) {
                             canPlace = false;
                             break;
                         }
                     }
-                    
+
                     // Jika bisa, tempatkan seluruh blok
                     if (canPlace) {
                         for (int offset = 0; offset < blockSize; offset++) {
                             int period = startPeriod + offset;
                             TimeSlot slot = schedule.getSlot(day, period, className);
-                            slot.assign(assignment, offset + 1);
+                            slot.assign(assignment, totalPlaced + offset + 1);
                         }
+                        totalPlaced += blockSize;
                         placed = true;
-                        System.out.printf("         ✓ Placed %d consecutive hours on %s periods %d-%d\n",
-                            blockSize, day, startPeriod, startPeriod + blockSize - 1);
+                        System.out.printf("         ✓ Placed block #%d: %d consecutive hours on %s periods %d-%d\n",
+                            blockIdx + 1, blockSize, day, startPeriod, startPeriod + blockSize - 1);
                         break;
                     }
                 }
             }
-            
+
             if (!placed) {
                 System.out.printf("         ⚠ Could not place block of %d consecutive hours\n", blockSize);
-                // Jika gagal menempatkan blok berurutan, coba per jam (fallback)
+                // PJOK TIDAK BOLEH fallback ke placement individual!
+                if (isPJOK) {
+                    System.out.printf("         ❌ PJOK cannot be placed individually - skipping\n");
+                    return false;
+                }
+                // Untuk non-PJOK, fallback ke per jam
                 for (int i = 0; i < blockSize; i++) {
                     placeOneHourConstrained(schedule, assignment);
                 }
             }
         }
-        
+
         return true;
+    }
+
+    /**
+     * SPECIAL METHOD: Place PJOK dengan pola STRICT - 2 jam berurutan di SENIN + 1 jam di SELASA
+     */
+    private boolean placePJOKWithStrictPattern(Schedule schedule, Assignment assignment) {
+        String className = assignment.getClassName();
+        String teacher = assignment.getTeacher();
+
+        System.out.printf("      → PJOK STRICT PATTERN: 2 hours on SENIN + 1 hour on SELASA\n");
+
+        // STEP 1: Tempatkan 2 jam berurutan di SENIN (jam 1-4)
+        boolean senin2HoursPlaced = false;
+        List<TimeSlot> seninSlots = schedule.getSlotsForClass("Senin", className);
+
+        for (int period = 1; period <= PJOK_MAX_PERIOD_FOR_DOUBLE - 1; period++) {
+            TimeSlot slot1 = schedule.getSlot("Senin", period, className);
+            TimeSlot slot2 = schedule.getSlot("Senin", period + 1, className);
+
+            if (slot1 != null && slot2 != null &&
+                slot1.isEmpty() && slot2.isEmpty() &&
+                schedule.isTeacherAvailable(teacher, "Senin", period, className) &&
+                schedule.isTeacherAvailable(teacher, "Senin", period + 1, className)) {
+
+                slot1.assign(assignment, 1);
+                slot2.assign(assignment, 2);
+                senin2HoursPlaced = true;
+                System.out.printf("         ✓ Placed 2 consecutive PJOK hours on SENIN periods %d-%d\n",
+                    period, period + 1);
+                break;
+            }
+        }
+
+        if (!senin2HoursPlaced) {
+            System.out.printf("         ⚠ Failed to place 2 consecutive hours on SENIN, trying fallback...\n");
+            // Fallback: Coba hari lain untuk 2 jam berurutan
+            for (int dayIdx = 0; dayIdx < DAYS.length; dayIdx++) {
+                String day = DAYS[dayIdx];
+                if (day.equals("Rabu")) continue; // Skip Rabu untuk PJOK double
+
+                int maxPeriod = Math.min(PERIODS_PER_DAY[dayIdx], PJOK_MAX_PERIOD_FOR_DOUBLE);
+
+                for (int period = 1; period <= maxPeriod - 1; period++) {
+                    TimeSlot slot1 = schedule.getSlot(day, period, className);
+                    TimeSlot slot2 = schedule.getSlot(day, period + 1, className);
+
+                    if (slot1 != null && slot2 != null &&
+                        slot1.isEmpty() && slot2.isEmpty() &&
+                        schedule.isTeacherAvailable(teacher, day, period, className) &&
+                        schedule.isTeacherAvailable(teacher, day, period + 1, className)) {
+
+                        slot1.assign(assignment, 1);
+                        slot2.assign(assignment, 2);
+                        senin2HoursPlaced = true;
+                        System.out.printf("         ✓ Fallback: Placed 2 consecutive PJOK hours on %s periods %d-%d\n",
+                            day, period, period + 1);
+                        break;
+                    }
+                }
+                if (senin2HoursPlaced) break;
+            }
+        }
+
+        // STEP 2: Tempatkan 1 jam di SELASA
+        boolean selasa1HourPlaced = false;
+        List<TimeSlot> selasaSlots = schedule.getSlotsForClass("Selasa", className);
+
+        for (TimeSlot slot : selasaSlots) {
+            if (slot.getPeriod() > PJOK_MAX_PERIOD_SINGLE) continue;
+
+            if (slot.isEmpty() &&
+                schedule.isTeacherAvailable(teacher, "Selasa", slot.getPeriod(), className)) {
+
+                slot.assign(assignment, 3);
+                selasa1HourPlaced = true;
+                System.out.printf("         ✓ Placed 1 PJOK hour on SELASA period %d\n", slot.getPeriod());
+                break;
+            }
+        }
+
+        if (!selasa1HourPlaced) {
+            System.out.printf("         ⚠ Failed to place 1 hour on SELASA, trying other days...\n");
+            // Fallback: Coba hari lain untuk 1 jam
+            for (int dayIdx = 0; dayIdx < DAYS.length; dayIdx++) {
+                String day = DAYS[dayIdx];
+                int maxPeriod = PERIODS_PER_DAY[dayIdx];
+
+                for (int period = 1; period <= maxPeriod; period++) {
+                    TimeSlot slot = schedule.getSlot(day, period, className);
+
+                    if (slot != null && slot.isEmpty() &&
+                        schedule.isTeacherAvailable(teacher, day, period, className)) {
+
+                        slot.assign(assignment, 3);
+                        selasa1HourPlaced = true;
+                        System.out.printf("         ✓ Fallback: Placed 1 PJOK hour on %s period %d\n", day, period);
+                        break;
+                    }
+                }
+                if (selasa1HourPlaced) break;
+            }
+        }
+
+        boolean success = senin2HoursPlaced && selasa1HourPlaced;
+        if (success) {
+            System.out.printf("      ✅ PJOK pattern completed: 2 hours + 1 hour = 3 hours total\n");
+        } else {
+            System.out.printf("      ⚠ PJOK pattern incomplete: Senin=%s, Selasa=%s\n",
+                senin2HoursPlaced ? "OK" : "FAIL", selasa1HourPlaced ? "OK" : "FAIL");
+        }
+
+        return success;
     }
 
     private boolean placeOneHourConstrained(Schedule schedule, Assignment assignment) {
@@ -428,7 +595,6 @@ public class ScheduleGenerator {
 
             // Apply STRICT hard constraints - NO RELAXATION
             if (isPJOK) {
-                // Untuk PJOK, cek apakah ini akan jadi 2 jam berurutan
                 List<TimeSlot> slots = schedule.getSlotsForClass(day, className);
                 int scheduledPJOK = 0;
                 for (TimeSlot s : slots) {
@@ -438,7 +604,6 @@ public class ScheduleGenerator {
                     }
                 }
 
-                // Jika sudah ada PJOK atau akan membentuk 2 jam berurutan, batasi ke jam 4
                 if (scheduledPJOK > 0) {
                     maxPeriod = Math.min(maxPeriod, PJOK_MAX_PERIOD_FOR_DOUBLE);
                 } else {
@@ -459,19 +624,16 @@ public class ScheduleGenerator {
                 int currentHours = countSubjectHoursOnDay(schedule, assignment, day);
                 if (currentHours >= MAX_HOURS_PER_SUBJECT_PER_DAY) continue;
 
-                // EXTRA CHECK: Untuk PJOK, pastikan jika ada slot sebelah yang PJOK, ini masih di jam <= 4
                 if (isPJOK && slot.getPeriod() > 1) {
                     TimeSlot prevSlot = slots.get(slot.getPeriod() - 2);
                     if (!prevSlot.isEmpty() && isPJOKSubject(prevSlot.getAssignment().getSubject()) &&
                         prevSlot.getAssignment().getTeacher().equals(teacher)) {
-                        // Ini akan jadi jam ke-2 dari PJOK berurutan, pastikan masih <= 5
                         if (slot.getPeriod() > 5) continue;
                     }
                 }
 
                 double score = calculateAdvancedScore(schedule, assignment, day, slot.getPeriod(), isMGMP, isPJOK);
 
-                // BOOST score untuk slot yang aman dari pelanggaran
                 if (isPJOK && slot.getPeriod() <= 4) score += 500;
                 if (isMGMP && !day.equals("Rabu")) score += 500;
                 if (isMGMP && day.equals("Rabu") && slot.getPeriod() <= MGMP_MAX_PERIOD_RABU) score += 300;
@@ -482,8 +644,6 @@ public class ScheduleGenerator {
 
         if (!validOptions.isEmpty()) {
             validOptions.sort((a, b) -> Double.compare(b.score, a.score));
-
-            // Use top 3 with randomization for diversity
             int selectFrom = Math.min(3, validOptions.size());
             PlacementOption selected = validOptions.get(random.nextInt(selectFrom));
 
@@ -497,66 +657,94 @@ public class ScheduleGenerator {
         return false;
     }
 
+    private boolean placeTwoConsecutiveHours(Schedule schedule, Assignment assignment) {
+        String className = assignment.getClassName();
+        String teacher = assignment.getTeacher();
+        boolean isPJOK = isPJOKSubject(assignment.getSubject());
+        boolean isMGMP = mgmpTeachers.contains(teacher);
+
+        for (int dayIdx = 0; dayIdx < DAYS.length; dayIdx++) {
+            String day = DAYS[dayIdx];
+            int maxPeriod = PERIODS_PER_DAY[dayIdx];
+
+            if (isPJOK) {
+                maxPeriod = Math.min(maxPeriod, PJOK_MAX_PERIOD_FOR_DOUBLE);
+            }
+            if (isMGMP && day.equals("Rabu")) {
+                maxPeriod = Math.min(maxPeriod, MGMP_MAX_PERIOD_RABU);
+            }
+
+            int existingHoursToday = countSubjectHoursOnDay(schedule, assignment, day);
+            if (existingHoursToday > 0) continue;
+
+            for (int period = 1; period <= maxPeriod - 1; period++) {
+                TimeSlot slot1 = schedule.getSlot(day, period, className);
+                TimeSlot slot2 = schedule.getSlot(day, period + 1, className);
+
+                if (slot1 != null && slot2 != null &&
+                    slot1.isEmpty() && slot2.isEmpty() &&
+                    schedule.isTeacherAvailable(teacher, day, period, className) &&
+                    schedule.isTeacherAvailable(teacher, day, period + 1, className)) {
+
+                    int currentScheduled = schedule.getScheduledHours(assignment);
+                    slot1.assign(assignment, currentScheduled + 1);
+                    slot2.assign(assignment, currentScheduled + 2);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private double calculateAdvancedScore(Schedule schedule, Assignment assignment,
                                          String day, int period, boolean isMGMP, boolean isPJOK) {
         double score = 1000.0;
-
-        // 1. Prefer earlier periods
         score += (11 - period) * 15;
 
-        // 2. Bonus jika slot berurutan dengan mata pelajaran yang sama (SOFT CONSTRAINT)
         String className = assignment.getClassName();
         List<TimeSlot> daySlots = schedule.getSlotsForClass(day, className);
 
-        // Cek jam sebelumnya
         if (period > 1) {
-            TimeSlot prevSlot = daySlots.get(period - 2); // period-1 karena list 0-based
+            TimeSlot prevSlot = daySlots.get(period - 2);
             if (!prevSlot.isEmpty() &&
                 prevSlot.getAssignment().getTeacher().equals(assignment.getTeacher()) &&
                 prevSlot.getAssignment().getSubject().equals(assignment.getSubject())) {
-                score += 150; // Bonus besar untuk berurutan!
+                score += 150;
             }
         }
 
-        // Cek jam sesudahnya
         if (period < daySlots.size()) {
-            TimeSlot nextSlot = daySlots.get(period); // period karena next
+            TimeSlot nextSlot = daySlots.get(period);
             if (!nextSlot.isEmpty() &&
                 nextSlot.getAssignment().getTeacher().equals(assignment.getTeacher()) &&
                 nextSlot.getAssignment().getSubject().equals(assignment.getSubject())) {
-                score += 150; // Bonus besar untuk berurutan!
+                score += 150;
             }
         }
 
-        // 3. Even distribution across days
         int currentHours = countSubjectHoursOnDay(schedule, assignment, day);
         if (currentHours == 0) score += 80;
         else if (currentHours == 1) score += 40;
         else if (currentHours == 2) score += 20;
 
-        // 4. MGMP: Strong preference for non-Wednesday
         if (isMGMP) {
             if (!day.equals("Rabu")) {
                 score += 100;
             } else {
-                // If Wednesday, prefer earlier periods (1-4 saja)
                 if (period <= MGMP_MAX_PERIOD_RABU) {
                     score += (MGMP_MAX_PERIOD_RABU - period + 1) * 30;
                 }
             }
         }
 
-        // 5. PJOK: Prefer earlier periods strongly
         if (isPJOK) {
             score += (PJOK_MAX_PERIOD_SINGLE - period + 1) * 35;
         }
 
-        // 6. Balance teacher workload per day
         int teacherHoursToday = countTeacherHoursOnDay(schedule, assignment.getTeacher(), day);
         if (teacherHoursToday < 3) score += 30;
         else if (teacherHoursToday > 6) score -= 40;
 
-        // 7. Random factor for diversity
         score += random.nextDouble() * 10;
 
         return score;
@@ -578,7 +766,6 @@ public class ScheduleGenerator {
         String className = assignment.getClassName();
         String teacher = assignment.getTeacher();
 
-        // Try any available slot
         for (String day : DAYS) {
             List<TimeSlot> slots = schedule.getSlotsForClass(day, className);
             for (TimeSlot slot : slots) {
@@ -755,7 +942,6 @@ public class ScheduleGenerator {
     private void intensiveRepair(Schedule schedule) {
         System.out.println("   → Repairing constraint violations...");
 
-        // Fix hard constraint violations first - WITH INTELLIGENT SWAP
         for (int round = 0; round < 200; round++) {
             int violations = countAllViolations(schedule);
             if (violations == 0) {
@@ -763,10 +949,12 @@ public class ScheduleGenerator {
                 break;
             }
 
-            // Use intelligent swap for repair
             repairPJOKViolationsWithSwap(schedule);
             repairMGMPViolationsWithSwap(schedule);
             fixAllTeacherConflicts(schedule);
+
+            // TAMBAHAN: Perbaiki PJOK yang terpecah jadi 1-1-1
+            fixPJOKWrongPattern(schedule);
 
             if (round % 50 == 0 && round > 0) {
                 System.out.printf("   → Constraint repair round %d: %d violations remaining\n", round, violations);
@@ -775,7 +963,6 @@ public class ScheduleGenerator {
 
         System.out.println("   → Completing incomplete assignments (AGGRESSIVE MODE)...");
 
-        // PHASE 1: Standard placement (2000 rounds)
         for (int round = 0; round < 2000; round++) {
             List<Assignment> incomplete = getIncompleteAssignments(schedule);
             if (incomplete.isEmpty()) {
@@ -785,7 +972,6 @@ public class ScheduleGenerator {
 
             boolean progress = false;
 
-            // Prioritize incomplete assignments
             incomplete.sort((a, b) -> {
                 int aRemaining = a.getTotalHours() - schedule.getScheduledHours(a);
                 int bRemaining = b.getTotalHours() - schedule.getScheduledHours(b);
@@ -793,14 +979,22 @@ public class ScheduleGenerator {
             });
 
             for (Assignment assignment : incomplete) {
-                if (placeOneHourConstrained(schedule, assignment)) {
-                    progress = true;
-                } else if (placeOneHourRelaxed(schedule, assignment)) {
-                    progress = true;
-                } else if (swapForIncomplete(schedule, assignment)) {
-                    progress = true;
-                } else if (forcePlace(schedule, assignment)) {
-                    progress = true;
+                // BLOKIR PJOK dari placement individual
+                if (isPJOKSubject(assignment.getSubject())) {
+                    // PJOK harus menggunakan strict pattern placement
+                    if (placePJOKWithStrictPattern(schedule, assignment)) {
+                        progress = true;
+                    }
+                } else {
+                    if (placeOneHourConstrained(schedule, assignment)) {
+                        progress = true;
+                    } else if (placeOneHourRelaxed(schedule, assignment)) {
+                        progress = true;
+                    } else if (swapForIncomplete(schedule, assignment)) {
+                        progress = true;
+                    } else if (forcePlace(schedule, assignment)) {
+                        progress = true;
+                    }
                 }
             }
 
@@ -812,7 +1006,6 @@ public class ScheduleGenerator {
             if (!progress && round > 500) break;
         }
 
-        // PHASE 2: Ultra aggressive swapping (remove others if needed)
         System.out.println("   → Phase 2: Ultra aggressive placement...");
         List<Assignment> stillIncomplete = getIncompleteAssignments(schedule);
 
@@ -820,7 +1013,6 @@ public class ScheduleGenerator {
             boolean progress = false;
 
             for (Assignment incomplete : stillIncomplete) {
-                // Try to find any slot and swap with over-scheduled assignments
                 if (forceSwapWithOverscheduled(schedule, incomplete)) {
                     progress = true;
                 } else if (forceSwapWithAnyAssignment(schedule, incomplete)) {
@@ -838,7 +1030,6 @@ public class ScheduleGenerator {
             if (!progress) break;
         }
 
-        // PHASE 3: Last resort - place anywhere possible
         System.out.println("   → Phase 3: Last resort placement...");
         stillIncomplete = getIncompleteAssignments(schedule);
 
@@ -855,7 +1046,6 @@ public class ScheduleGenerator {
             }
         }
 
-        // Final check
         List<Assignment> finalIncomplete = getIncompleteAssignments(schedule);
         if (finalIncomplete.isEmpty()) {
             System.out.println("   ✅✅✅ SUCCESS! ALL ASSIGNMENTS 100% COMPLETE! ✅✅✅");
@@ -870,29 +1060,107 @@ public class ScheduleGenerator {
     }
 
     /**
-     * Force placement - mencoba menempatkan jam dengan relaksasi constraint MGMP jika perlu
+     * FUNGSI BARU: Memperbaiki PJOK yang terpecah menjadi 1-1-1, harus jadi 2-1
      */
+    private void fixPJOKWrongPattern(Schedule schedule) {
+        System.out.println("   → Validating PJOK patterns (MUST be 2-1)...");
+        
+        for (String className : schedule.getAllClasses()) {
+            // Cari semua PJOK assignment untuk kelas ini
+            Map<String, List<TimeSlot>> pjokSlotsByTeacher = new HashMap<>();
+            
+            for (String day : DAYS) {
+                for (TimeSlot slot : schedule.getSlotsForClass(day, className)) {
+                    if (!slot.isEmpty() && isPJOKSubject(slot.getAssignment().getSubject())) {
+                        String teacher = slot.getAssignment().getTeacher();
+                        pjokSlotsByTeacher.computeIfAbsent(teacher, k -> new ArrayList<>()).add(slot);
+                    }
+                }
+            }
+            
+            // Untuk setiap guru PJOK
+            for (Map.Entry<String, List<TimeSlot>> entry : pjokSlotsByTeacher.entrySet()) {
+                List<TimeSlot> pjokSlots = entry.getValue();
+                String teacher = entry.getKey();
+                
+                if (pjokSlots.size() != 3) continue; // Hanya handle PJOK 3 jam
+                
+                // Sort slots untuk print yang rapi
+                pjokSlots.sort((a, b) -> {
+                    int dayCompare = Integer.compare(
+                        Arrays.asList(DAYS).indexOf(a.getDay()),
+                        Arrays.asList(DAYS).indexOf(b.getDay())
+                    );
+                    if (dayCompare != 0) return dayCompare;
+                    return Integer.compare(a.getPeriod(), b.getPeriod());
+                });
+                
+                // Print current pattern
+                System.out.printf("      Class %s PJOK: ", className);
+                for (int i = 0; i < pjokSlots.size(); i++) {
+                    TimeSlot slot = pjokSlots.get(i);
+                    System.out.printf("%s-P%d", slot.getDay(), slot.getPeriod());
+                    if (i < pjokSlots.size() - 1) System.out.print(", ");
+                }
+                
+                // Cek apakah ada 2 jam berurutan
+                boolean hasConsecutivePair = false;
+                for (int i = 0; i < pjokSlots.size() - 1; i++) {
+                    TimeSlot slot1 = pjokSlots.get(i);
+                    for (int j = i + 1; j < pjokSlots.size(); j++) {
+                        TimeSlot slot2 = pjokSlots.get(j);
+                        
+                        if (slot1.getDay().equals(slot2.getDay()) &&
+                            Math.abs(slot1.getPeriod() - slot2.getPeriod()) == 1) {
+                            hasConsecutivePair = true;
+                            break;
+                        }
+                    }
+                    if (hasConsecutivePair) break;
+                }
+                
+                // Jika TIDAK ada 2 jam berurutan, berarti pola salah (1-1-1)
+                if (!hasConsecutivePair) {
+                    System.out.printf(" ❌ WRONG (1-1-1) - FIXING...\n");
+                    
+                    // Hapus semua slot PJOK yang salah pola
+                    Assignment pjokAssignment = pjokSlots.get(0).getAssignment();
+                    for (TimeSlot slot : pjokSlots) {
+                        slot.clear();
+                    }
+                    
+                    // Tempatkan ulang dengan pola yang benar (2-1)
+                    boolean success = placePJOKWithStrictPattern(schedule, pjokAssignment);
+                    
+                    if (success) {
+                        System.out.printf("         ✅ Fixed to 2-1 pattern\n");
+                    } else {
+                        System.out.printf("         ⚠ Failed to fix - will retry\n");
+                    }
+                } else {
+                    System.out.printf(" ✅ CORRECT (2-1)\n");
+                }
+            }
+        }
+    }
+
     private boolean forcePlace(Schedule schedule, Assignment assignment) {
         String className = assignment.getClassName();
         String teacher = assignment.getTeacher();
         boolean isPJOK = isPJOKSubject(assignment.getSubject());
         boolean isMGMP = mgmpTeachers.contains(teacher);
 
-        // Try all days and periods with minimal constraints
         for (int dayIdx = 0; dayIdx < DAYS.length; dayIdx++) {
             String day = DAYS[dayIdx];
             int maxPeriod = PERIODS_PER_DAY[dayIdx];
 
-            // Only keep PJOK hard constraint - relax MGMP temporarily if needed
             if (isPJOK) {
                 maxPeriod = Math.min(maxPeriod, PJOK_MAX_PERIOD_SINGLE);
             }
-            // For MGMP on Wednesday, try up to period 4 first, then relax if needed
             int preferredMax = (isMGMP && day.equals("Rabu")) ? MGMP_MAX_PERIOD_RABU : maxPeriod;
 
             List<TimeSlot> slots = schedule.getSlotsForClass(day, className);
 
-            // Try preferred max first
             for (TimeSlot slot : slots) {
                 if (slot.getPeriod() > preferredMax) continue;
                 if (!slot.isEmpty()) continue;
@@ -903,7 +1171,6 @@ public class ScheduleGenerator {
             }
         }
 
-        // If still can't place, try relaxing MGMP constraint completely
         if (isMGMP) {
             for (int dayIdx = 0; dayIdx < DAYS.length; dayIdx++) {
                 String day = DAYS[dayIdx];
@@ -924,17 +1191,13 @@ public class ScheduleGenerator {
         return false;
     }
 
-    /**
-     * Force swap dengan assignment yang over-scheduled
-     */
     private boolean forceSwapWithOverscheduled(Schedule schedule, Assignment needsSlot) {
         String className = needsSlot.getClassName();
         String teacher = needsSlot.getTeacher();
         boolean isPJOK = isPJOKSubject(needsSlot.getSubject());
 
         for (String day : DAYS) {
-            int maxPeriod = PERIODS_PER_DAY[DAYS.length > 0 ?
-                java.util.Arrays.asList(DAYS).indexOf(day) : 0];
+            int maxPeriod = PERIODS_PER_DAY[java.util.Arrays.asList(DAYS).indexOf(day)];
 
             if (isPJOK) {
                 maxPeriod = Math.min(maxPeriod, PJOK_MAX_PERIOD_SINGLE);
@@ -949,7 +1212,6 @@ public class ScheduleGenerator {
                         return true;
                     }
                 } else {
-                    // Cek apakah current assignment over-scheduled
                     Assignment current = slot.getAssignment();
                     int scheduled = schedule.getScheduledHours(current);
                     int expected = current.getTotalHours();
@@ -960,7 +1222,7 @@ public class ScheduleGenerator {
                             slot.assign(needsSlot, 1);
                             return true;
                         }
-                        slot.assign(current, 1); // Restore jika gagal
+                        slot.assign(current, 1);
                     }
                 }
             }
@@ -968,17 +1230,13 @@ public class ScheduleGenerator {
         return false;
     }
 
-    /**
-     * Force swap dengan assignment apa saja (kalau perlu)
-     */
     private boolean forceSwapWithAnyAssignment(Schedule schedule, Assignment needsSlot) {
         String className = needsSlot.getClassName();
         String teacher = needsSlot.getTeacher();
         boolean isPJOK = isPJOKSubject(needsSlot.getSubject());
 
         for (String day : DAYS) {
-            int maxPeriod = PERIODS_PER_DAY[DAYS.length > 0 ?
-                java.util.Arrays.asList(DAYS).indexOf(day) : 0];
+            int maxPeriod = PERIODS_PER_DAY[java.util.Arrays.asList(DAYS).indexOf(day)];
 
             if (isPJOK) {
                 maxPeriod = Math.min(maxPeriod, PJOK_MAX_PERIOD_SINGLE);
@@ -991,30 +1249,23 @@ public class ScheduleGenerator {
 
                 Assignment current = slot.getAssignment();
 
-                // Jangan swap dengan assignment yang sama incomplete-nya
                 int currentScheduled = schedule.getScheduledHours(current);
                 int currentExpected = current.getTotalHours();
-                int needsScheduled = schedule.getScheduledHours(needsSlot);
-                int needsExpected = needsSlot.getTotalHours();
 
-                // Hanya swap jika current sudah lebih lengkap
-                if (currentScheduled >= currentExpected * 0.8) { // 80% complete
+                if (currentScheduled >= currentExpected * 0.8) {
                     slot.clear();
 
-                    // Coba tempatkan needsSlot
                     if (schedule.isTeacherAvailable(teacher, day, slot.getPeriod(), className)) {
                         slot.assign(needsSlot, 1);
 
-                        // Coba tempatkan kembali current di tempat lain
                         if (!placeOneHourRelaxed(schedule, current)) {
-                            // Jika gagal, restore
                             slot.clear();
                             slot.assign(current, 1);
                         } else {
                             return true;
                         }
                     } else {
-                        slot.assign(current, 1); // Restore
+                        slot.assign(current, 1);
                     }
                 }
             }
@@ -1022,14 +1273,10 @@ public class ScheduleGenerator {
         return false;
     }
 
-    /**
-     * Force place di mana saja yang memungkinkan (last resort)
-     */
     private boolean forcePlaceAnywhere(Schedule schedule, Assignment assignment) {
         String className = assignment.getClassName();
         String teacher = assignment.getTeacher();
 
-        // Try all days and all periods
         for (String day : DAYS) {
             List<TimeSlot> slots = schedule.getSlotsForClass(day, className);
             for (TimeSlot slot : slots) {
@@ -1042,7 +1289,6 @@ public class ScheduleGenerator {
             }
         }
 
-        // If still can't place, try to find ANY available slot even if it means moving others
         for (String day : DAYS) {
             List<TimeSlot> slots = schedule.getSlotsForClass(day, className);
             for (TimeSlot slot : slots) {
@@ -1055,12 +1301,11 @@ public class ScheduleGenerator {
                         System.out.printf("      ⚠ FORCED placement of %s [%s] at %s period %d (replaced %s)\n",
                             assignment.getSubject(), className, day, slot.getPeriod(), current.getSubject());
 
-                        // Try to relocate the displaced assignment
                         placeOneHourRelaxed(schedule, current);
                         return true;
                     }
 
-                    slot.assign(current, 1); // Restore if failed
+                    slot.assign(current, 1);
                 }
             }
         }
@@ -1071,7 +1316,6 @@ public class ScheduleGenerator {
     private void finalPolish(Schedule schedule) {
         System.out.println("   → ULTRA AGRESSIVE CONSTRAINT ENFORCEMENT...");
 
-        // Remove over-scheduled
         for (Assignment assignment : assignments) {
             int scheduled = schedule.getScheduledHours(assignment);
             int expected = assignment.getTotalHours();
@@ -1087,7 +1331,6 @@ public class ScheduleGenerator {
             }
         }
 
-        // SUPER AGGRESSIVE REPAIR - 500 rounds
         System.out.println("   → Super aggressive constraint repair (500 rounds)...");
         for (int round = 0; round < 500; round++) {
             int pjokViol = countPJOKViolations(schedule);
@@ -1098,150 +1341,14 @@ public class ScheduleGenerator {
                 break;
             }
 
-            // Repair dengan berbagai strategi
             if (pjokViol > 0) {
                 repairPJOKViolationsWithSwap(schedule);
                 fixAllPJOKViolations(schedule);
-
-                // Extra aggressive: force move PJOK violations
-                for (String day : DAYS) {
-                    for (String className : schedule.getAllClasses()) {
-                        List<TimeSlot> slots = schedule.getSlotsForClass(day, className);
-                        for (int i = 0; i < slots.size() - 1; i++) {
-                            TimeSlot slot = slots.get(i);
-                            if (slot.isEmpty() || !isPJOKSubject(slot.getAssignment().getSubject())) continue;
-
-                            TimeSlot next = slots.get(i + 1);
-                            if (!next.isEmpty() && isPJOKSubject(next.getAssignment().getSubject()) &&
-                                next.getAssignment().getTeacher().equals(slot.getAssignment().getTeacher())) {
-
-                                if (slot.getPeriod() > 4) {
-                                    // Force clear and relocate
-                                    Assignment pjok = slot.getAssignment();
-                                    slot.clear();
-                                    next.clear();
-
-                                    // Find ANY 2 consecutive slots in jam 1-4 across all days
-                                    boolean relocated = false;
-                                    for (String otherDay : DAYS) {
-                                        List<TimeSlot> otherSlots = schedule.getSlotsForClass(otherDay, className);
-                                        for (int j = 0; j < Math.min(4, otherSlots.size() - 1); j++) {
-                                            TimeSlot c1 = otherSlots.get(j);
-                                            TimeSlot c2 = otherSlots.get(j + 1);
-
-                                            if (c1.isEmpty() && c2.isEmpty() &&
-                                                schedule.isTeacherAvailable(pjok.getTeacher(), otherDay, c1.getPeriod(), className)) {
-                                                c1.assign(pjok, 1);
-                                                c2.assign(pjok, 1);
-                                                relocated = true;
-                                                break;
-                                            }
-                                        }
-                                        if (relocated) break;
-                                    }
-
-                                    if (!relocated) {
-                                        // Last resort: swap with anything
-                                        for (String otherDay : DAYS) {
-                                            List<TimeSlot> otherSlots = schedule.getSlotsForClass(otherDay, className);
-                                            for (int j = 0; j < Math.min(4, otherSlots.size() - 1); j++) {
-                                                TimeSlot c1 = otherSlots.get(j);
-                                                TimeSlot c2 = otherSlots.get(j + 1);
-
-                                                if (!c1.isEmpty() && !c2.isEmpty()) {
-                                                    Assignment swap1 = c1.getAssignment();
-                                                    Assignment swap2 = c2.getAssignment();
-
-                                                    if (!isPJOKSubject(swap1.getSubject()) && !isPJOKSubject(swap2.getSubject())) {
-                                                        c1.clear();
-                                                        c2.clear();
-                                                        c1.assign(pjok, 1);
-                                                        c2.assign(pjok, 1);
-
-                                                        // Try to place swapped items back
-                                                        placeOneHourRelaxed(schedule, swap1);
-                                                        placeOneHourRelaxed(schedule, swap2);
-                                                        relocated = true;
-                                                        break;
-                                                    }
-                                                }
-                                            }
-                                            if (relocated) break;
-                                        }
-                                    }
-                                }
-                                i++; // Skip next
-                            }
-                        }
-                    }
-                }
             }
 
             if (mgmpViol > 0) {
                 repairMGMPViolationsWithSwap(schedule);
                 fixAllMGMPViolations(schedule);
-
-                // Extra aggressive: force move MGMP violations
-                for (String className : schedule.getAllClasses()) {
-                    List<TimeSlot> rabuSlots = schedule.getSlotsForClass("Rabu", className);
-                    for (TimeSlot slot : rabuSlots) {
-                        if (!slot.isEmpty() && slot.getPeriod() > MGMP_MAX_PERIOD_RABU &&
-                            mgmpTeachers.contains(slot.getAssignment().getTeacher())) {
-
-                            Assignment mgmp = slot.getAssignment();
-                            slot.clear();
-
-                            // Try to place in Rabu 1-4
-                            boolean relocated = false;
-                            for (TimeSlot candidate : rabuSlots) {
-                                if (candidate.getPeriod() <= MGMP_MAX_PERIOD_RABU && candidate.isEmpty() &&
-                                    schedule.isTeacherAvailable(mgmp.getTeacher(), "Rabu", candidate.getPeriod(), className)) {
-                                    candidate.assign(mgmp, 1);
-                                    relocated = true;
-                                    break;
-                                }
-                            }
-
-                            // Try other days
-                            if (!relocated) {
-                                for (String day : DAYS) {
-                                    if (day.equals("Rabu")) continue;
-                                    List<TimeSlot> daySlots = schedule.getSlotsForClass(day, className);
-                                    for (TimeSlot candidate : daySlots) {
-                                        if (candidate.isEmpty() &&
-                                            schedule.isTeacherAvailable(mgmp.getTeacher(), day, candidate.getPeriod(), className)) {
-                                            candidate.assign(mgmp, 1);
-                                            relocated = true;
-                                            break;
-                                        }
-                                    }
-                                    if (relocated) break;
-                                }
-                            }
-
-                            // Last resort: swap with non-MGMP
-                            if (!relocated) {
-                                for (String day : DAYS) {
-                                    if (day.equals("Rabu")) continue;
-                                    List<TimeSlot> daySlots = schedule.getSlotsForClass(day, className);
-                                    for (TimeSlot candidate : daySlots) {
-                                        if (!candidate.isEmpty()) {
-                                            Assignment swap = candidate.getAssignment();
-                                            if (!mgmpTeachers.contains(swap.getTeacher()) && !isPJOKSubject(swap.getSubject())) {
-                                                candidate.clear();
-                                                candidate.assign(mgmp, 1);
-                                                placeOneHourRelaxed(schedule, swap);
-                                                relocated = true;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                    if (relocated) break;
-                                }
-                            }
-                        }
-                    }
-                }
             }
 
             fixAllTeacherConflicts(schedule);
@@ -1251,7 +1358,6 @@ public class ScheduleGenerator {
             }
         }
 
-        // Final fill incomplete
         for (int i = 0; i < 100; i++) {
             List<Assignment> incomplete = getIncompleteAssignments(schedule);
             if (incomplete.isEmpty()) break;
@@ -1261,7 +1367,6 @@ public class ScheduleGenerator {
             }
         }
 
-        // Final report on constraints
         int finalPjok = countPJOKViolations(schedule);
         int finalMgmp = countMGMPViolations(schedule);
         System.out.printf("   → Final result: PJOK violations=%d, MGMP violations=%d\n", finalPjok, finalMgmp);
@@ -1413,14 +1518,9 @@ public class ScheduleGenerator {
         }
     }
 
-    /**
-     * Repair PJOK violations dengan intelligent swap
-     * Menggunakan low-level heuristic untuk mencari solusi optimal
-     */
     private void repairPJOKViolationsWithSwap(Schedule schedule) {
         List<TimeSlot> pjokViolations = new ArrayList<>();
 
-        // Kumpulkan semua PJOK violations (2 jam berurutan yang dimulai > jam 4)
         for (String day : DAYS) {
             for (String className : schedule.getAllClasses()) {
                 List<TimeSlot> slots = schedule.getSlotsForClass(day, className);
@@ -1430,23 +1530,20 @@ public class ScheduleGenerator {
                     if (slot.isEmpty() || !isPJOKSubject(slot.getAssignment().getSubject())) continue;
 
                     TimeSlot next = slots.get(i + 1);
-                    // Cek apakah ini 2 jam berurutan PJOK
                     if (!next.isEmpty() &&
                         isPJOKSubject(next.getAssignment().getSubject()) &&
                         next.getAssignment().getTeacher().equals(slot.getAssignment().getTeacher())) {
 
-                        // 2 jam berurutan harus dimulai max jam 4
                         if (slot.getPeriod() > 4) {
                             pjokViolations.add(slot);
                             pjokViolations.add(next);
                         }
-                        i++; // Skip next karena sudah diproses
+                        i++;
                     }
                 }
             }
         }
 
-        // Repair setiap pair violations dengan swap intelligent
         for (int i = 0; i < pjokViolations.size(); i += 2) {
             if (i + 1 >= pjokViolations.size()) break;
 
@@ -1459,7 +1556,6 @@ public class ScheduleGenerator {
 
             boolean repaired = false;
 
-            // Strategy 1: Cari 2 slot kosong berurutan di jam 1-4
             List<TimeSlot> daySlots = schedule.getSlotsForClass(day, className);
             for (int j = 0; j < daySlots.size() - 1; j++) {
                 if (daySlots.get(j).getPeriod() > 4) break;
@@ -1479,49 +1575,6 @@ public class ScheduleGenerator {
                 }
             }
 
-            // Strategy 2: Swap dengan 2 slot berurutan non-PJOK di jam 1-4
-            if (!repaired) {
-                for (int j = 0; j < daySlots.size() - 1; j++) {
-                    if (daySlots.get(j).getPeriod() > 4) break;
-
-                    TimeSlot candidate1 = daySlots.get(j);
-                    TimeSlot candidate2 = daySlots.get(j + 1);
-
-                    if (!candidate1.isEmpty() && !candidate2.isEmpty()) {
-                        Assignment swap1 = candidate1.getAssignment();
-                        Assignment swap2 = candidate2.getAssignment();
-
-                        // Jangan swap dengan PJOK atau MGMP di Rabu jam awal
-                        if (isPJOKSubject(swap1.getSubject()) || isPJOKSubject(swap2.getSubject())) continue;
-                        if (day.equals("Rabu") && mgmpTeachers.contains(swap1.getTeacher())) continue;
-                        if (day.equals("Rabu") && mgmpTeachers.contains(swap2.getTeacher())) continue;
-
-                        // Cek availability untuk swap
-                        boolean canSwap = true;
-                        if (!schedule.isTeacherAvailable(teacher, day, candidate1.getPeriod(), className)) canSwap = false;
-                        if (!schedule.isTeacherAvailable(swap1.getTeacher(), day, pjokSlot1.getPeriod(), className)) canSwap = false;
-                        if (!swap1.getTeacher().equals(swap2.getTeacher())) {
-                            if (!schedule.isTeacherAvailable(swap2.getTeacher(), day, pjokSlot2.getPeriod(), className)) canSwap = false;
-                        }
-
-                        if (canSwap) {
-                            pjokSlot1.clear();
-                            pjokSlot2.clear();
-                            candidate1.clear();
-                            candidate2.clear();
-
-                            candidate1.assign(pjokAssignment, 1);
-                            candidate2.assign(pjokAssignment, 1);
-                            pjokSlot1.assign(swap1, 1);
-                            pjokSlot2.assign(swap2, 1);
-                            repaired = true;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            // Strategy 3: Pindah ke hari lain jika tidak bisa di hari yang sama
             if (!repaired) {
                 for (String otherDay : DAYS) {
                     if (otherDay.equals(day)) continue;
@@ -1550,14 +1603,9 @@ public class ScheduleGenerator {
         }
     }
 
-    /**
-     * Repair MGMP violations dengan intelligent swap
-     * Menggunakan low-level heuristic untuk mencari solusi optimal
-     */
     private void repairMGMPViolationsWithSwap(Schedule schedule) {
         List<TimeSlot> mgmpViolations = new ArrayList<>();
 
-        // Kumpulkan semua MGMP violations di Rabu setelah jam 4
         for (String className : schedule.getAllClasses()) {
             List<TimeSlot> slots = schedule.getSlotsForClass("Rabu", className);
             for (TimeSlot slot : slots) {
@@ -1569,7 +1617,6 @@ public class ScheduleGenerator {
             }
         }
 
-        // Repair setiap violation dengan swap intelligent
         for (TimeSlot mgmpSlot : mgmpViolations) {
             Assignment mgmpAssignment = mgmpSlot.getAssignment();
             String className = mgmpSlot.getClassName();
@@ -1577,7 +1624,6 @@ public class ScheduleGenerator {
 
             boolean repaired = false;
 
-            // Strategy 1: Cari slot kosong di Rabu jam 1-4
             List<TimeSlot> rabuSlots = schedule.getSlotsForClass("Rabu", className);
             for (TimeSlot candidate : rabuSlots) {
                 if (candidate.getPeriod() > MGMP_MAX_PERIOD_RABU) break;
@@ -1592,33 +1638,6 @@ public class ScheduleGenerator {
                 }
             }
 
-            // Strategy 2: Swap dengan slot non-MGMP non-PJOK di Rabu jam 1-4
-            if (!repaired) {
-                for (TimeSlot candidate : rabuSlots) {
-                    if (candidate.getPeriod() > MGMP_MAX_PERIOD_RABU) break;
-                    if (candidate.isEmpty()) continue;
-
-                    Assignment swapAssignment = candidate.getAssignment();
-
-                    // Jangan swap dengan MGMP atau PJOK lain
-                    if (mgmpTeachers.contains(swapAssignment.getTeacher())) continue;
-                    if (isPJOKSubject(swapAssignment.getSubject())) continue;
-
-                    // Cek availability
-                    if (schedule.isTeacherAvailable(teacher, "Rabu", candidate.getPeriod(), className) &&
-                        schedule.isTeacherAvailable(swapAssignment.getTeacher(), "Rabu", mgmpSlot.getPeriod(), className)) {
-
-                        mgmpSlot.clear();
-                        candidate.clear();
-                        candidate.assign(mgmpAssignment, 1);
-                        mgmpSlot.assign(swapAssignment, 1);
-                        repaired = true;
-                        break;
-                    }
-                }
-            }
-
-            // Strategy 3: Pindah ke hari lain (Senin-Jumat kecuali Rabu)
             if (!repaired) {
                 for (String day : DAYS) {
                     if (day.equals("Rabu")) continue;
@@ -1637,53 +1656,12 @@ public class ScheduleGenerator {
                     if (repaired) break;
                 }
             }
-
-            // Strategy 4: Aggressive swap dengan hari lain
-            if (!repaired) {
-                for (String day : DAYS) {
-                    if (day.equals("Rabu")) continue;
-
-                    List<TimeSlot> daySlots = schedule.getSlotsForClass(day, className);
-                    for (TimeSlot candidate : daySlots) {
-                        if (candidate.isEmpty()) continue;
-
-                        Assignment swapAssignment = candidate.getAssignment();
-
-                        // Jangan swap dengan MGMP atau PJOK
-                        if (mgmpTeachers.contains(swapAssignment.getTeacher())) continue;
-                        if (isPJOKSubject(swapAssignment.getSubject())) continue;
-
-                        // Untuk PJOK pair, skip
-                        if (day.equals(candidate.getDay())) {
-                            List<TimeSlot> checkSlots = schedule.getSlotsForClass(day, className);
-                            int idx = checkSlots.indexOf(candidate);
-                            if (idx > 0 && !checkSlots.get(idx-1).isEmpty() &&
-                                isPJOKSubject(checkSlots.get(idx-1).getAssignment().getSubject())) continue;
-                            if (idx < checkSlots.size()-1 && !checkSlots.get(idx+1).isEmpty() &&
-                                isPJOKSubject(checkSlots.get(idx+1).getAssignment().getSubject())) continue;
-                        }
-
-                        if (schedule.isTeacherAvailable(teacher, day, candidate.getPeriod(), className) &&
-                            schedule.isTeacherAvailable(swapAssignment.getTeacher(), "Rabu", mgmpSlot.getPeriod(), className)) {
-
-                            mgmpSlot.clear();
-                            candidate.clear();
-                            candidate.assign(mgmpAssignment, 1);
-                            mgmpSlot.assign(swapAssignment, 1);
-                            repaired = true;
-                            break;
-                        }
-                    }
-                    if (repaired) break;
-                }
-            }
         }
     }
 
     private double evaluateFitness(Schedule schedule) {
         double score = 100000.0;
 
-        // 1. COMPLETION (Highest priority)
         int totalNeeded = 0;
         int totalScheduled = 0;
         for (Assignment a : assignments) {
@@ -1691,9 +1669,8 @@ public class ScheduleGenerator {
             totalScheduled += schedule.getScheduledHours(a);
         }
         double completionRatio = totalScheduled / (double) totalNeeded;
-        score += completionRatio * 200000; // DOUBLED!
+        score += completionRatio * 200000;
 
-        // 2. Hard constraints (very high penalty)
         int conflicts = countTeacherConflicts(schedule);
         score -= conflicts * 30000;
 
@@ -1703,11 +1680,9 @@ public class ScheduleGenerator {
         int mgmpViol = countMGMPViolations(schedule);
         score -= mgmpViol * 15000;
 
-        // 3. Soft constraints
         int maxHoursViol = countMaxHoursViolations(schedule);
         score -= maxHoursViol * 300;
 
-        // 4. Distribution quality
         score += calculateDistributionQuality(schedule);
 
         return score;
@@ -1813,7 +1788,6 @@ public class ScheduleGenerator {
             for (String className : schedule.getAllClasses()) {
                 List<TimeSlot> slots = schedule.getSlotsForClass(day, className);
 
-                // Cek PJOK yang melebihi jam maksimal (jam 10)
                 for (TimeSlot slot : slots) {
                     if (!slot.isEmpty() && isPJOKSubject(slot.getAssignment().getSubject())
                         && slot.getPeriod() > PJOK_MAX_PERIOD_SINGLE) {
@@ -1821,21 +1795,18 @@ public class ScheduleGenerator {
                     }
                 }
 
-                // Cek PJOK 2 jam berurutan yang dimulai setelah jam 4
                 for (int i = 0; i < slots.size() - 1; i++) {
                     TimeSlot slot = slots.get(i);
                     if (slot.isEmpty() || !isPJOKSubject(slot.getAssignment().getSubject())) continue;
 
                     TimeSlot next = slots.get(i + 1);
-                    // Cek apakah ini 2 jam berurutan PJOK dari guru yang sama
                     if (!next.isEmpty() &&
                         isPJOKSubject(next.getAssignment().getSubject()) &&
                         next.getAssignment().getTeacher().equals(slot.getAssignment().getTeacher()) &&
                         slot.getPeriod() + 1 == next.getPeriod()) {
 
-                        // 2 jam berurutan harus dimulai maksimal jam 4
                         if (slot.getPeriod() > PJOK_MAX_PERIOD_FOR_DOUBLE) {
-                            violations += 2; // Count both hours as violations
+                            violations += 2;
                         }
                     }
                 }
@@ -1871,49 +1842,37 @@ public class ScheduleGenerator {
         return violations;
     }
 
-    /**
-     * Mendapatkan pola distribusi yang sesuai untuk mata pelajaran tertentu
-     */
     private int[] getDistributionPattern(Assignment assignment) {
         String subject = assignment.getSubject().toUpperCase().trim();
         int totalHours = assignment.getTotalHours();
 
-        // Cek PJOK khusus - harus 2-1 untuk 3 jam
         if (subject.contains("PJOK") && totalHours == 3) {
             return SUBJECT_DISTRIBUTION_PATTERNS.get("PJOK_3");
         }
 
-        // Cek Matematika
         if (subject.contains("MATEMATIKA") && totalHours == 5) {
             return SUBJECT_DISTRIBUTION_PATTERNS.get("MATEMATIKA_5");
         }
 
-        // Cek IPA
         if (subject.contains("IPA") && totalHours == 5) {
             return SUBJECT_DISTRIBUTION_PATTERNS.get("IPA_5");
         }
 
-        // Cek Bahasa Indonesia
         if ((subject.contains("BAHASA INDONESIA") || subject.contains("B. INDONESIA") ||
              subject.contains("B.INDONESIA") || subject.contains("INDONESIA")) && totalHours == 6) {
             return SUBJECT_DISTRIBUTION_PATTERNS.get("BAHASA INDONESIA_6");
         }
 
-        // Cek Bahasa Inggris
         if ((subject.contains("BAHASA INGGRIS") || subject.contains("B. INGGRIS") ||
              subject.contains("B.INGGRIS") || subject.contains("INGGRIS")) && totalHours == 4) {
             return SUBJECT_DISTRIBUTION_PATTERNS.get("BAHASA INGGRIS_4");
         }
 
-        // Cek IPS
         if (subject.contains("IPS") && totalHours == 4) {
             return SUBJECT_DISTRIBUTION_PATTERNS.get("IPS_4");
         }
 
-        // Default pattern berdasarkan total jam - DENGAN FLEKSIBILITAS
         if (totalHours == 3) {
-            // Untuk mapel 3 jam (selain PJOK): Coba 2-1 dulu, fallback ke 3 berurutan
-            // Prioritas: 2-1 untuk distribusi lebih merata
             return SUBJECT_DISTRIBUTION_PATTERNS.get("DEFAULT_3_SPLIT");
         } else if (totalHours == 2) {
             return SUBJECT_DISTRIBUTION_PATTERNS.get("DEFAULT_2");
@@ -1921,20 +1880,15 @@ public class ScheduleGenerator {
             return SUBJECT_DISTRIBUTION_PATTERNS.get("DEFAULT_1");
         }
 
-        // Untuk jam lebih dari 6 atau kasus lain, bagi dalam blok berurutan maksimal 3 jam
         return distributeEvenly(totalHours);
     }
 
-    /**
-     * Membagi jam secara merata dalam blok berurutan (maksimal 3 jam per blok)
-     */
     private int[] distributeEvenly(int totalHours) {
         if (totalHours <= 3) {
             return new int[]{totalHours};
         }
 
-        // Bagi dalam blok maksimal 3 jam berurutan
-        int sessions = (totalHours + 2) / 3; // Maksimal 3 jam per sesi
+        int sessions = (totalHours + 2) / 3;
         int[] pattern = new int[sessions];
         int remaining = totalHours;
 
@@ -1944,115 +1898,6 @@ public class ScheduleGenerator {
         }
 
         return pattern;
-    }
-
-    /**
-     * Validasi apakah distribusi mata pelajaran di jadwal sudah sesuai pola
-     */
-    private int countDistributionViolations(Schedule schedule) {
-        int violations = 0;
-
-        // Kelompokkan assignments berdasarkan subject + class
-        Map<String, Assignment> uniqueAssignments = new HashMap<>();
-        for (Assignment a : assignments) {
-            String key = a.getSubject() + "|" + a.getClassName();
-            uniqueAssignments.put(key, a);
-        }
-
-        // Validasi setiap assignment
-        for (Assignment assignment : uniqueAssignments.values()) {
-            int[] expectedPattern = getDistributionPattern(assignment);
-            violations += validateDistribution(schedule, assignment, expectedPattern);
-        }
-
-        return violations;
-    }
-
-    /**
-     * Validasi apakah distribusi mata pelajaran sudah berurutan sesuai pola
-     */
-    private int validateDistribution(Schedule schedule, Assignment assignment, int[] expectedPattern) {
-        int violations = 0;
-        String className = assignment.getClassName();
-
-        // Kumpulkan semua slot untuk assignment ini
-        List<List<TimeSlot>> sessions = new ArrayList<>();
-
-        for (String day : DAYS) {
-            List<TimeSlot> daySlots = schedule.getSlotsForClass(day, className);
-            List<TimeSlot> currentSession = new ArrayList<>();
-
-            for (TimeSlot slot : daySlots) {
-                if (!slot.isEmpty() &&
-                    slot.getAssignment().getTeacher().equals(assignment.getTeacher()) &&
-                    slot.getAssignment().getSubject().equals(assignment.getSubject())) {
-
-                    // Cek apakah berurutan dengan slot sebelumnya
-                    if (!currentSession.isEmpty()) {
-                        TimeSlot lastSlot = currentSession.get(currentSession.size() - 1);
-                        if (slot.getPeriod() == lastSlot.getPeriod() + 1) {
-                            currentSession.add(slot);
-                        } else {
-                            // Sesi baru (tidak berurutan)
-                            if (!currentSession.isEmpty()) {
-                                sessions.add(new ArrayList<>(currentSession));
-                            }
-                            currentSession.clear();
-                            currentSession.add(slot);
-                        }
-                    } else {
-                        currentSession.add(slot);
-                    }
-                }
-            }
-
-            // Tambahkan sesi terakhir di hari ini
-            if (!currentSession.isEmpty()) {
-                sessions.add(new ArrayList<>(currentSession));
-            }
-        }
-
-        // Validasi jumlah sesi dan ukuran setiap sesi
-        if (sessions.size() != expectedPattern.length) {
-            violations += Math.abs(sessions.size() - expectedPattern.length);
-        }
-
-        // Validasi ukuran setiap sesi
-        for (int i = 0; i < Math.min(sessions.size(), expectedPattern.length); i++) {
-            int actualSize = sessions.get(i).size();
-            int expectedSize = expectedPattern[i];
-            if (actualSize != expectedSize) {
-                violations += Math.abs(actualSize - expectedSize);
-            }
-        }
-
-        return violations;
-    }
-
-    /**
-     * Mendapatkan daftar pelanggaran distribusi untuk ditampilkan di GUI
-     */
-    public List<String> getDistributionViolationDetails(Schedule schedule) {
-        List<String> violations = new ArrayList<>();
-
-        Map<String, Assignment> uniqueAssignments = new HashMap<>();
-        for (Assignment a : assignments) {
-            String key = a.getSubject() + "|" + a.getClassName();
-            uniqueAssignments.put(key, a);
-        }
-
-        for (Assignment assignment : uniqueAssignments.values()) {
-            int[] expectedPattern = getDistributionPattern(assignment);
-            int violationCount = validateDistribution(schedule, assignment, expectedPattern);
-
-            if (violationCount > 0) {
-                String patternStr = Arrays.toString(expectedPattern).replaceAll("[\\[\\]]", "");
-                violations.add(String.format("%s - %s: Harusnya pola %s jam berurutan (pelanggaran: %d)",
-                    assignment.getClassName(), assignment.getSubject(), patternStr, violationCount));
-            }
-        }
-
-        return violations;
     }
 
     private void printDetailedReport(Schedule schedule, double seconds) {
@@ -2102,10 +1947,9 @@ public class ScheduleGenerator {
                 (completedAssignments == totalAssignments ?
                         "✅ Semua assignment lengkap! (violations: " + (conflicts+pjokViol+mgmpViol) + ")" :
                         "⚠️  " + (totalAssignments - completedAssignments) + " assignment belum lengkap - run ulang untuk hasil berbeda")));
-        System.out.println("════════════════════════════════════════════════════════════════════");
+        System.out.println("════════════════════════════════════════════════════════════════");
     }
 
-    // Inner classes
     private static class PlacementOption {
         String day;
         int period;

@@ -47,8 +47,8 @@ public class ScheduleResultGUI extends JFrame {
         exportButton.setFocusPainted(false);
         exportButton.setCursor(new Cursor(Cursor.HAND_CURSOR));
         exportButton.addActionListener(e -> exportToExcel());
-        exportButton.addActionListener(e -> exportToexcel2());
-        exportButton.addActionListener(e -> exportToexcel3());
+        //exportButton.addActionListener(e -> exportToexcel2());
+        //exportButton.addActionListener(e -> exportToexcel3());
         topPanel.add(exportButton);
         mainPanel.add(topPanel, BorderLayout.NORTH);
 

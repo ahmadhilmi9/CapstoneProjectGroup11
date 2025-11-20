@@ -131,10 +131,10 @@ public class ExcelExporter {
         //fillPerGuruSheet(perGuruSheet, teachers, classes, headerStyle, dayStyle, timeStyle, dataStyle, specialStyle, centerStyle);
 
         // 4) sheets per teacher — each sheet named after teacher, contents: HARI | JAM KE | WAKTU | KELAS | MATA PELAJARAN
-        //createPerTeacherSheets(workbook, teachers, classes, headerStyle, dayStyle, timeStyle, dataStyle);
+        createPerTeacherSheets(workbook, teachers, classes, headerStyle, dayStyle, timeStyle, dataStyle);
 
         //5) per kelas
-        //createPerClassSheets(workbook, classes, headerStyle, dayStyle, timeStyle, dataStyle, specialStyle);
+        createPerClassSheets(workbook, classes, headerStyle, dayStyle, timeStyle, dataStyle, specialStyle);
 
         // write file
         try (FileOutputStream out = new FileOutputStream(filePath)) {
